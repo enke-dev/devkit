@@ -1,5 +1,11 @@
 # DevKit
 
+# [0.2.0](https://github.com/enke-dev/devkit/compare/v0.1.1...v0.2.0) (2026-09-18)
+
+### Features
+
+* ask for a newer DevKit from the menu ([7faa482](https://github.com/enke-dev/devkit/commit/7faa48258810cc7ad60199985f9fabb45d27b12f))
+
 ## [0.1.1](https://github.com/enke-dev/devkit/compare/v0.1.0...v0.1.1) (2026-09-18)
 
 ### Bug Fixes

@@ -1,6 +1,6 @@
 [package]
 name = "devkit"
-version = "0.1.1"
+version = "0.2.0"
 description = "Cross-platform multi-engine browser preview"
 authors = ["David Enke"]
 edition = "2021"
