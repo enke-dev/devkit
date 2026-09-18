@@ -11,6 +11,13 @@ Every pane is a real headless browser driven through Playwright — not the plat
 the comparison means the same thing on every operating system. Navigation and input are mirrored to
 all three: type a URL, scroll, click, and watch three engines answer the same event.
 
+<p align="center">
+  <picture>
+    <source media="(prefers-reduced-motion: reduce)" srcset="https://raw.githubusercontent.com/enke-dev/devkit/main/assets/hello-world.png">
+    <img src="https://raw.githubusercontent.com/enke-dev/devkit/main/assets/hello-world.gif" width="960" alt="DevKit rendering the same page in Chromium, Gecko and WebKit">
+  </picture>
+</p>
+
 ## Running it
 
 Needs [Bun](https://bun.sh), [Node](https://nodejs.org) at the version in `.node-version`, and a Rust
