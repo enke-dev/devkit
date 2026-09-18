@@ -1,0 +1,29 @@
+{
+  "name": "@devkit/sidecar",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify:screencast": "node scripts/verify-screencast.mjs",
+    "verify:settle": "node scripts/verify-settle.mjs",
+    "verify:recovery": "node scripts/verify-recovery.mjs",
+    "lint": "bun run --parallel lint:*",
+    "lint:prettier": "bun --bun prettier --config prettier.config.ts --check .",
+    "lint:eslint": "bun --bun eslint --config eslint.config.ts",
+    "format": "bun run --sequential format:*",
+    "format:prettier": "bun --bun prettier --config prettier.config.ts --write .",
+    "format:eslint": "bun --bun eslint --config eslint.config.ts --fix"
+  },
+  "dependencies": {
+    "@devkit/protocol": "workspace:*",
+    "playwright": "1.63.0"
+  },
+  "devDependencies": {
+    "@types/node": "22.15.1",
+    "typescript": "5.9.3"
+  }
+}
