@@ -37,6 +37,13 @@ const ENGINE_GLYPHS: Record<Engine, IconDefinition> = {
   webkit: faSafari,
 };
 
+/** The two modes a running pane alternates between. */
+const RUNNING: ViewStatus[] = ['stream', 'settled'];
+
+export function isRunning(status: ViewStatus): boolean {
+  return RUNNING.includes(status);
+}
+
 export function statusLabel(status: ViewStatus): string {
   return STATUS[status].label;
 }

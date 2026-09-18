@@ -1,4 +1,6 @@
 import '../icon-button/icon-button.component.js';
+import '@phosphor-icons/webcomponents/PhArrowSquareOut';
+import '@phosphor-icons/webcomponents/PhCircleNotch';
 import '@phosphor-icons/webcomponents/PhMoon';
 import '@phosphor-icons/webcomponents/PhSun';
 
@@ -12,7 +14,7 @@ import { styleMap } from 'lit/directives/style-map.js';
 import { DevkitElement } from '../../utils/base.utils.js';
 import styles from './pane-navbar.component.css';
 import type { ViewStatus } from './pane-navbar.utils.js';
-import { renderEngineGlyph, statusColour, statusLabel } from './pane-navbar.utils.js';
+import { isRunning, renderEngineGlyph, statusColour, statusLabel } from './pane-navbar.utils.js';
 
 /**
  * A pane's header: which engine is rendering, at what size, how fast, and in
@@ -41,6 +43,10 @@ export class PaneNavbarComponent extends DevkitElement.withStyles(styles) {
   @property()
   accessor status: ViewStatus = 'idle';
 
+  /** A window is being opened; ends when the sidecar says the page is up in it. */
+  @property({ type: Boolean })
+  accessor detaching = false;
+
   /** The scheme the page is being told the user prefers. */
   @property()
   accessor colorScheme: ColorScheme = 'light';
@@ -60,15 +66,28 @@ export class PaneNavbarComponent extends DevkitElement.withStyles(styles) {
         <span class="version">${this.version}</span>
       </span>
       <span class="dims">${this.dims}</span>
-      <devkit-icon-button
-        label="Render ${this.colorScheme === 'dark' ? 'light' : 'dark'}"
-        @click=${() => this.dispatchEvent(new CustomEvent('devkit-color-scheme'))}
-      >
-        ${choose(this.colorScheme, [
-          ['dark', () => html`<ph-moon></ph-moon>`],
-          ['light', () => html`<ph-sun></ph-sun>`],
-        ])}
-      </devkit-icon-button>
+      <nav>
+        <devkit-icon-button
+          label=${this.detaching ? 'Opening ${ENGINE_LABELS[this.engine]} window' : `Open in a ${ENGINE_LABELS[this.engine]} window`}
+          ?disabled=${this.detaching || !isRunning(this.status)}
+          @click=${() => this.dispatchEvent(new CustomEvent('devkit-detach'))}
+        >
+          ${
+            this.detaching
+              ? html`<ph-circle-notch class="spin"></ph-circle-notch>`
+              : html`<ph-arrow-square-out></ph-arrow-square-out>`
+          }
+        </devkit-icon-button>
+        <devkit-icon-button
+          label="Render ${this.colorScheme === 'dark' ? 'light' : 'dark'}"
+          @click=${() => this.dispatchEvent(new CustomEvent('devkit-color-scheme'))}
+        >
+          ${choose(this.colorScheme, [
+            ['dark', () => html`<ph-moon></ph-moon>`],
+            ['light', () => html`<ph-sun></ph-sun>`],
+          ])}
+        </devkit-icon-button>
+      </nav>
       <span class="meter">${this.rate}</span>
       <span class="status" style=${styleMap({ color: statusColour(this.status) })}>
         ${statusLabel(this.status)}

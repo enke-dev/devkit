@@ -5,6 +5,7 @@ import type { ColorScheme, Engine, Event, Request, Viewport } from '@devkit/prot
 import { ENGINES } from '@devkit/protocol';
 
 import { install, probe } from './browsers.js';
+import { closeDetached, detach } from './detached.js';
 import { emit, log } from './emit.js';
 import { closeFrameChannel, connectFrameChannel } from './frame-channel.js';
 import { describe, Pane } from './pane.js';
@@ -169,6 +170,16 @@ async function handle(request: Request): Promise<void> {
       await panes.get(request.engine)?.setColorScheme(request.scheme);
       return;
 
+    case 'detach': {
+      const pane = panes.get(request.engine);
+      const url = pane?.page?.url();
+      if (!pane || !url) {
+        throw new Error(`${request.engine} pane is not running`);
+      }
+      await detach(request.engine, url, pane.emulation);
+      return;
+    }
+
     case 'input': {
       // Only the pane under the pointer is asked about the cursor, and only
       // while the pointer is moving over it.
@@ -224,7 +235,7 @@ async function shutdown(code: number): Promise<void> {
   closeFrameChannel();
   const closing = [...panes.values()].map(pane => pane.close());
   panes.clear();
-  await Promise.allSettled(closing);
+  await Promise.allSettled([...closing, closeDetached()]);
   process.exit(code);
 }
 

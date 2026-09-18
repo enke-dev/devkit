@@ -68,6 +68,15 @@ export type Command =
    */
   | { type: 'color-scheme'; engine: Engine; scheme: ColorScheme }
   /**
+   * Open the pane's current page in a headed window of the same engine.
+   *
+   * The pane itself is untouched: this is a second browser beside it, for the
+   * things a streamed picture cannot give — the engine's own developer tools
+   * above all. What happens in that window is the user's business; nothing
+   * mirrors it back.
+   */
+  | { type: 'detach'; engine: Engine }
+  /**
    * Replay a user input event in one pane, or in all of them at once.
    *
    * Mirroring to `'all'` matches lockstep navigation: one click, three engines

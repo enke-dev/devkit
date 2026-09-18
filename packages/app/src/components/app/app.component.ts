@@ -600,6 +600,27 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     }
   }
 
+  /**
+   * Open the pane's page in a headed window, and say so while it is opening.
+   *
+   * The ack is the window: the sidecar answers once the page has committed in
+   * it, so the button is held until then rather than for a guessed while.
+   */
+  private async detach(engine: Engine): Promise<void> {
+    const pane = this.pane(engine);
+    if (!pane || pane.detaching) {
+      return;
+    }
+    pane.detaching = true;
+    try {
+      await send({ type: 'detach', engine });
+    } catch (error) {
+      this.reportError(error);
+    } finally {
+      pane.detaching = false;
+    }
+  }
+
   private setColorScheme(engine: Engine, scheme: ColorScheme): Promise<void> {
     return send({ type: 'color-scheme', engine, scheme }).catch(error => this.reportError(error));
   }
@@ -835,6 +856,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         @devkit-install=${(event: CustomEvent<Engine>) => this.requestInstall([event.detail])}
         @devkit-color-scheme=${(event: CustomEvent<{ engine: Engine; scheme: ColorScheme }>) =>
           void this.setColorScheme(event.detail.engine, event.detail.scheme)}
+        @devkit-detach=${(event: CustomEvent<Engine>) => void this.detach(event.detail)}
       >
         ${ENGINES.map(engine => html`<devkit-pane .engine=${engine}></devkit-pane>`)}
       </main>

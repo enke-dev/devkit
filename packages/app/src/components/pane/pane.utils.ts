@@ -1,8 +1,6 @@
 import type { ColorScheme, Engine, Viewport } from '@devkit/protocol';
 import { FRAME_SCHEME } from '@devkit/protocol';
 
-import type { ViewStatus } from '../pane-navbar/pane-navbar.utils.js';
-
 /**
  * Stand-in cursor shapes, drawn to look like the system cursors they stand in
  * for — not like an app's own iconography.
@@ -62,9 +60,6 @@ const FRAME_ORIGIN = navigator.userAgent.includes('Windows')
   ? `http://${FRAME_SCHEME}.localhost`
   : `${FRAME_SCHEME}://localhost`;
 
-/** The two modes a running pane alternates between. */
-const RUNNING: ViewStatus[] = ['stream', 'settled'];
-
 /** How long the frame-rate meter averages over. */
 const METER_WINDOW_MS = 2000;
 
@@ -107,10 +102,6 @@ export function frameUrl(engine: Engine, seq: number | string): string {
  */
 export function hostColorScheme(): ColorScheme {
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-export function isRunning(status: ViewStatus): boolean {
-  return RUNNING.includes(status);
 }
 
 /**

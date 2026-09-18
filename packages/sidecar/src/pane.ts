@@ -232,6 +232,11 @@ export class Pane {
     return this.#page;
   }
 
+  /** What a second window of this engine has to match to show the same thing. */
+  get emulation(): { viewport: Viewport; colorScheme: ColorScheme } {
+    return { viewport: this.#viewport, colorScheme: this.#colorScheme };
+  }
+
   /** The browser build, once it is up. Reported with the pane's status. */
   get version(): string | undefined {
     return this.#browser?.isConnected() === true ? this.#browser.version() : undefined;

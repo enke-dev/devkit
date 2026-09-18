@@ -60,6 +60,27 @@ svg.engine {
   font-variant-numeric: tabular-nums;
 }
 
+nav {
+  display: flex;
+  flex-flow: row nowrap;
+}
+
+ph-arrow-square-out,
+ph-circle-notch {
+  font-size: 15px;
+}
+
+/* Launching a browser takes a second or two with nothing else to show for it. */
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 ph-moon,
 ph-sun {
   font-size: 13px;

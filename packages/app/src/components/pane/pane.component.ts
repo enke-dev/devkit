@@ -12,6 +12,7 @@ import { cursorTypeFor, nativeCursor } from '../../utils/cursors.utils.js';
 import type { Timings } from '../../utils/timing.utils.js';
 import { takeTimings } from '../../utils/timing.utils.js';
 import type { ViewStatus } from '../pane-navbar/pane-navbar.utils.js';
+import { isRunning } from '../pane-navbar/pane-navbar.utils.js';
 import styles from './pane.component.css';
 import {
   drawnCursorFor,
@@ -20,7 +21,6 @@ import {
   frameUrl,
   hostColorScheme,
   IDLE_RATE,
-  isRunning,
   pointWithin,
   recordFrameTime,
   safeCursorCss,
@@ -100,6 +100,10 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
   get colorScheme(): ColorScheme {
     return this.scheme;
   }
+
+  /** Whether a headed window is on its way; set by whoever asked the sidecar for it. */
+  @state()
+  accessor detaching = false;
 
   @state()
   private accessor progress = '';
@@ -377,8 +381,15 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
         .rate=${isRunning(this.status) ? this.rate || IDLE_RATE : ''}
         .status=${this.status}
         .colorScheme=${this.scheme}
+        .detaching=${this.detaching}
         ?active=${this.active}
         ?solo=${this.solo}
+        @devkit-detach=${(event: CustomEvent) => {
+          event.stopPropagation();
+          this.dispatchEvent(
+            new CustomEvent('devkit-detach', { detail: this.engine, bubbles: true, composed: true })
+          );
+        }}
         @devkit-color-scheme=${(event: CustomEvent) => {
           // The header's event is a click; the one that leaves the pane names
           // the engine and the scheme, and only that one goes further.
@@ -486,6 +497,7 @@ declare global {
   }
   interface HTMLElementEventMap {
     'devkit-install': CustomEvent<Engine>;
+    'devkit-detach': CustomEvent<Engine>;
     'devkit-color-scheme': CustomEvent<{ engine: Engine; scheme: ColorScheme }>;
   }
 }
