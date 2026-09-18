@@ -1,5 +1,11 @@
 # DevKit
 
+## [0.1.1](https://github.com/enke-dev/devkit/compare/v0.1.0...v0.1.1) (2026-09-18)
+
+### Bug Fixes
+
+* **ci:** build the Intel app on a runner that exists ([4dd64cf](https://github.com/enke-dev/devkit/commit/4dd64cfb53642a504c70960ee759226eb3346ee0))
+
 # 0.1.0 (2026-09-18)
 
 ### Features
