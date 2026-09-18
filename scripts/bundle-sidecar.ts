@@ -93,6 +93,12 @@ await rm(bundle, { recursive: true, force: true });
 await mkdir(join(bundle, 'node_modules'), { recursive: true });
 
 await cp(dist, join(bundle, 'dist'), { recursive: true, dereference: true });
+// The app spawns exactly this file. A build that put it anywhere else — as a
+// `rootDir` change once did, nesting it under `dist/src` — has to fail here,
+// where CI sees it, not on the first launch after an update.
+if (!existsSync(join(bundle, 'dist', 'index.js'))) {
+  throw new Error(`sidecar entry missing at ${join(dist, 'index.js')}; check the sidecar tsconfig`);
+}
 
 const closure = await resolveClosure(join(sidecar, 'package.json'));
 await Promise.all(

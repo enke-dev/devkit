@@ -6,7 +6,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "bun run --parallel check:*",
+    "check:src": "tsc -p tsconfig.json --noEmit",
+    "check:scripts": "tsc -p scripts/tsconfig.json",
     "verify:screencast": "node scripts/verify-screencast.ts",
     "verify:settle": "node scripts/verify-settle.ts",
     "verify:recovery": "node scripts/verify-recovery.ts",

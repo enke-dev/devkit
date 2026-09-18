@@ -29,13 +29,26 @@ const SIDECAR_BIN: &str = "devkit-node";
 #[derive(Default)]
 pub struct Sidecar {
     child: Mutex<Option<CommandChild>>,
+    /// Why the last spawn failed, if it did.
+    ///
+    /// The spawn happens before the window exists, so nothing is listening when
+    /// it fails; the frontend learns of it from the first command it sends. That
+    /// used to be a bare "not running", which after an update that shipped the
+    /// sidecar in the wrong place said nothing about where to look.
+    failure: Mutex<Option<String>>,
 }
 
 impl Sidecar {
     /// Write one newline-delimited JSON command to the sidecar's stdin.
     pub fn send(&self, request: &serde_json::Value) -> Result<(), String> {
         let mut guard = self.child.lock().map_err(|_| "sidecar lock poisoned".to_string())?;
-        let child = guard.as_mut().ok_or_else(|| "sidecar is not running".to_string())?;
+        let child = guard.as_mut().ok_or_else(|| match self.failure.lock() {
+            Ok(failure) => match failure.as_deref() {
+                Some(reason) => format!("sidecar is not running: {reason}"),
+                None => "sidecar is not running".to_string(),
+            },
+            Err(_) => "sidecar is not running".to_string(),
+        })?;
         let mut line = serde_json::to_vec(request).map_err(|error| error.to_string())?;
         line.push(b'\n');
         child.write(&line).map_err(|error| error.to_string())
@@ -49,7 +62,14 @@ impl Sidecar {
         }
     }
 
+    fn remember_failure(&self, reason: Option<String>) {
+        if let Ok(mut failure) = self.failure.lock() {
+            *failure = reason;
+        }
+    }
+
     fn adopt(&self, child: CommandChild) {
+        self.remember_failure(None);
         if let Ok(mut guard) = self.child.lock() {
             // Replacing a live child would leak it, so retire the old one first.
             if let Some(previous) = guard.take() {
@@ -94,6 +114,14 @@ fn entry_script(app: &AppHandle) -> Result<PathBuf, String> {
 
 /// Spawn the sidecar and pump its stdout into Tauri events.
 pub fn spawn(app: &AppHandle) -> Result<(), String> {
+    let result = try_spawn(app);
+    if let Err(reason) = &result {
+        app.state::<Sidecar>().remember_failure(Some(reason.clone()));
+    }
+    result
+}
+
+fn try_spawn(app: &AppHandle) -> Result<(), String> {
     let script = entry_script(app)?;
 
     let mut command = app
