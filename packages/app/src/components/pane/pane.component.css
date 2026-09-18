@@ -1,93 +1,9 @@
 :host {
-  --status-color: var(--text-dim);
-
   display: grid;
   grid-template-rows: 26px 1fr;
   min-width: 0;
   min-height: 0;
   background: var(--bg-raised);
-}
-
-header {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
-}
-
-:host([active]) header {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
-
-.title {
-  display: inline-flex;
-  flex: none;
-  gap: 3px;
-  align-items: center;
-  color: var(--text);
-  font-weight: 600;
-}
-
-/* Sized in `em` and filled with `currentColor`: the mark follows the title it
-   sits in front of, including when the pane is the active one. */
-svg.engine {
-  flex: none;
-  width: 1.2em;
-  height: 1.2em;
-  margin-right: 3px;
-  fill: currentColor;
-}
-
-:host([active]) .title {
-  color: var(--accent);
-}
-
-:host([solo]:not([active])) header {
-  opacity: 0.45;
-}
-
-/* The browser build behind the engine: identifying, not headline, and the
-   part of the header allowed to shrink. */
-.version {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-dim);
-  font-weight: 400;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  font-variant-numeric: tabular-nums;
-}
-
-/* The size the page is laid out at. Shared by every pane, and stated in each:
-   it is the number you quote when a render differs, so it belongs next to the
-   render rather than once somewhere else. */
-.dims {
-  flex: none;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
-.meter {
-  margin-left: auto;
-  color: var(--text-dim);
-  font-variant-numeric: tabular-nums;
-}
-
-.status {
-  color: var(--status-color);
-}
-
-.status::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 5px;
-  border-radius: 50%;
-  background: currentColor;
-  vertical-align: 1px;
 }
 
 .surface {

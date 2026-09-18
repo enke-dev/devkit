@@ -1,4 +1,4 @@
-import '../navbar/navbar.component.js';
+import '../app-navbar/app-navbar.component.js';
 import '../pane/pane.component.js';
 
 import type { Engine, Event, InputEvent, SidecarStatus, Viewport } from '@devkit/protocol';
@@ -11,13 +11,7 @@ import { customElement, queryAll, state } from 'lit/decorators.js';
 import { when } from 'lit/directives/when.js';
 
 import { DevkitElement } from '../../utils/base.utils.js';
-import {
-  awaitingAck,
-  connect,
-  restart,
-  send,
-  takeHandoverTimings,
-} from '../../utils/bridge.utils.js';
+import { connect, restart, send } from '../../utils/bridge.utils.js';
 import { preloadCursors } from '../../utils/cursors.utils.js';
 import * as history from '../../utils/history.utils.js';
 import { attachInput } from '../../utils/input.utils.js';
@@ -27,11 +21,18 @@ import * as session from '../../utils/session.utils.js';
 import { isAppShortcut, match } from '../../utils/shortcuts.utils.js';
 import type { AvailableUpdate } from '../../utils/update.utils.js';
 import { availableUpdate } from '../../utils/update.utils.js';
-import type { NavbarComponent } from '../navbar/navbar.component.js';
+import type { AppNavbarComponent } from '../app-navbar/app-navbar.component.js';
 import type { PaneComponent } from '../pane/pane.component.js';
 import styles from './app.component.css';
-
-const HOME_URL = 'https://github.com/enke-dev/devkit';
+import {
+  countReceivedFrame,
+  fromTextField,
+  lastVisited,
+  sameViewport,
+  sharedViewport,
+  startFrameDiagnostics,
+  toUrl,
+} from './app.utils.js';
 
 /**
  * The app: one URL, three engines, and everything that has to agree between
@@ -118,26 +119,16 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     return this.panes.find(pane => pane.engine === engine);
   }
 
-  private get navbar(): NavbarComponent {
-    return this.renderRoot.querySelector('devkit-navbar') as NavbarComponent;
+  private get navbar(): AppNavbarComponent {
+    return this.renderRoot.querySelector('devkit-app-navbar') as AppNavbarComponent;
   }
 
   // -------------------------------------------------------------------------
   // Viewport
   // -------------------------------------------------------------------------
 
-  /**
-   * Every pane shares one viewport size, so the three renderings stay
-   * comparable: a layout difference between engines should come from the engine,
-   * not from one pane being forty pixels wider than the next.
-   */
   private currentViewport(): Viewport {
-    const sizes = this.panes.map(pane => pane.measure());
-    return {
-      width: even(Math.min(...sizes.map(size => size.width))),
-      height: even(Math.min(...sizes.map(size => size.height))),
-      scale: Math.min(2, window.devicePixelRatio || 1),
-    };
+    return sharedViewport(this.panes.map(pane => pane.measure()));
   }
 
   /**
@@ -190,13 +181,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     // before it shows anything again.
     this.panes.forEach(pane => pane.applyViewport(viewport));
 
-    const last = this.#lastViewport;
-    if (
-      last &&
-      last.width === viewport.width &&
-      last.height === viewport.height &&
-      last.scale === viewport.scale
-    ) {
+    if (sameViewport(this.#lastViewport, viewport)) {
       return;
     }
     this.#lastViewport = viewport;
@@ -207,26 +192,8 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   // Navigation
   // -------------------------------------------------------------------------
 
-  /** Accept bare hosts and search-ish input the way a browser address bar does. */
-  private toUrl(input: string): string | null {
-    const trimmed = input.trim();
-    if (trimmed.length === 0) {
-      return null;
-    }
-    if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed)) {
-      return trimmed;
-    }
-    if (
-      /^localhost(:\d+)?(\/|$)/i.test(trimmed) ||
-      /^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/|$)/.test(trimmed)
-    ) {
-      return `http://${trimmed}`;
-    }
-    return `https://${trimmed}`;
-  }
-
   private navigate(raw: string): void {
-    const url = this.toUrl(raw);
+    const url = toUrl(raw);
     if (!url) {
       return;
     }
@@ -339,7 +306,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       return;
     }
     // Typing in the address bar is the app's, not the page's.
-    if (event.composedPath().some(node => node instanceof HTMLInputElement)) {
+    if (fromTextField(event)) {
       return;
     }
     event.preventDefault();
@@ -364,7 +331,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     if (!this.#activeEngine) {
       return;
     }
-    if (event.composedPath().some(node => node instanceof HTMLInputElement)) {
+    if (fromTextField(event)) {
       return;
     }
     const text = event.clipboardData?.getData('text');
@@ -815,7 +782,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
 
   override render() {
     return html`
-      <devkit-navbar
+      <devkit-app-navbar
         .updateVersion=${this.pendingUpdate?.version ?? ''}
         .updating=${this.installingUpdate}
         .upToDate=${this.upToDate}
@@ -837,7 +804,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
           this.problem = 'Restarting the sidecar…';
           void restart().catch(error => this.reportError(error));
         }}
-      ></devkit-navbar>
+      ></devkit-app-navbar>
 
       <main
         class="panes"
@@ -902,92 +869,6 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       </div>
     `;
   }
-}
-
-/**
- * Round down to an even number of pixels.
- *
- * Playwright rounds the screencast size down to even (`width & ~1`), and Gecko
- * handles an odd request badly: asked for 533x858 it returns a 532x856 frame
- * whose first row is spoiled — sampled on a solid red page, rgb(255,139,144)
- * against rgb(204,0,1) — which the pane then stretches into a pale line above
- * the page. Asked for 532x858 it returns exactly that, clean from the first row.
- * It reproduces at device scale 1 as well, so it is the odd number, not the
- * scale.
- *
- * Even panes are better anyway: the frame arrives at exactly the size it is
- * displayed at, so nothing is rescaled on the way to the screen.
- */
-function even(value: number): number {
-  return value - (value % 2);
-}
-
-/**
- * Where to open on a cold start: where the trail stands, so a restart resumes
- * with its back arrow still pointing somewhere.
- */
-function lastVisited(): string {
-  return session.current() ?? history.mostRecent()?.url ?? HOME_URL;
-}
-
-/**
- * Count frames as the webview receives them, and report once a second.
- *
- * The sidecar's own accounting says how many frames it produced; this says how
- * many survived the trip. The gap between the two is the cost of the transport.
- */
-const received = new Map<Engine, { live: number; sharp: number; lastSharpDims: string }>();
-
-function countReceivedFrame(engine: Engine, frame: Extract<Event, { type: 'frame' }>): void {
-  const tally = received.get(engine) ?? { live: 0, sharp: 0, lastSharpDims: '-' };
-  if (frame.sharp) {
-    tally.sharp += 1;
-    tally.lastSharpDims = `${frame.width}x${frame.height}`;
-  } else {
-    tally.live += 1;
-  }
-  received.set(engine, tally);
-}
-
-function startFrameDiagnostics(panes: () => PaneComponent[]): void {
-  // A frontend exception would stop every pane updating at once, which is worth
-  // telling apart from an engine problem.
-  const report = (what: string, detail: unknown) =>
-    void invoke('debug_log', { message: `${what}: ${String(detail)}`.slice(0, 400) }).catch(
-      () => {}
-    );
-  window.addEventListener('error', event => report('UI ERROR', event.message));
-  window.addEventListener('unhandledrejection', event => report('UI REJECTION', event.reason));
-
-  window.setInterval(() => {
-    if (received.size === 0) {
-      return;
-    }
-    const line = [...received.entries()]
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([engine, tally]) => {
-        const pane = panes().find(candidate => candidate.engine === engine);
-        const failed = pane?.failed ? ` FAILED=${pane.failed}(${pane.lastFailure})` : '';
-        const blanks = pane?.blanks ? ` blank=${pane.blanks}/${pane.lastBlankMs}ms` : '';
-        const fetched = pane?.takeFetchTimings();
-        const fetch = fetched?.count ? ` fetch=${fetched.p50}/${fetched.p95}ms` : '';
-        return `${engine} sharp=${tally.sharp}@${tally.lastSharpDims} shown@${pane?.shownDims ?? '-'} live=${tally.live}${fetch}${blanks}${failed}`;
-      })
-      .join('  ');
-    received.clear();
-    panes().forEach(pane => {
-      pane.loaded = 0;
-      pane.blanks = 0;
-    });
-    // A rising count means acks are going missing, which silently stops the
-    // paced input that waits on them.
-    const waiting = awaitingAck();
-    const handover = takeHandoverTimings();
-    const ipc = handover.count ? `  ipc=${handover.p50}/${handover.p95}ms x${handover.count}` : '';
-    void invoke('debug_log', {
-      message: `received: ${line}${ipc}${waiting > 0 ? `  awaitingAck=${waiting}` : ''}`,
-    }).catch(() => {});
-  }, 1000);
 }
 
 declare global {

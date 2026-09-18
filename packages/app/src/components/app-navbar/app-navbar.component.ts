@@ -14,8 +14,10 @@ import { when } from 'lit/directives/when.js';
 
 import { DevkitElement } from '../../utils/base.utils.js';
 import type { SplitDirection } from '../../utils/layout.utils.js';
+import { oppositeSplit } from '../../utils/layout.utils.js';
 import type { AddressBarComponent } from '../address-bar/address-bar.component.js';
-import styles from './navbar.component.css';
+import styles from './app-navbar.component.css';
+import { splitLabel } from './app-navbar.utils.js';
 
 /**
  * The toolbar: where you are, where you can go back to, and what has gone wrong.
@@ -24,8 +26,8 @@ import styles from './navbar.component.css';
  * `devkit-navigate`, `devkit-restart`) and is told what to show. Nothing about
  * the engines is decided here.
  */
-@customElement('devkit-navbar')
-export class NavbarComponent extends DevkitElement.withStyles(styles) {
+@customElement('devkit-app-navbar')
+export class AppNavbarComponent extends DevkitElement.withStyles(styles) {
   @property({ type: Boolean, reflect: true, attribute: 'can-go-back' })
   accessor canGoBack = false;
 
@@ -67,16 +69,14 @@ export class NavbarComponent extends DevkitElement.withStyles(styles) {
   }
 
   /**
-   * The split the panes are not in, which is the one clicking asks for.
-   *
    * A toggle shows what it will do rather than what is already true — the
    * arrangement itself is on screen behind it, so repeating it says nothing.
    */
   private renderSplitToggle() {
-    const split = this.split === 'horizontal' ? 'vertical' : 'horizontal';
+    const split = oppositeSplit(this.split);
     return html`
       <devkit-icon-button
-        label=${split === 'vertical' ? 'Stack the panes' : 'Set the panes side by side'}
+        label=${splitLabel(split)}
         @click=${() => this.emit('devkit-split', split)}
       >
         ${choose(split, [
@@ -149,6 +149,6 @@ export class NavbarComponent extends DevkitElement.withStyles(styles) {
 
 declare global {
   interface HTMLElementTagNameMap {
-    'devkit-navbar': NavbarComponent;
+    'devkit-app-navbar': AppNavbarComponent;
   }
 }

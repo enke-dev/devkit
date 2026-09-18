@@ -3,6 +3,9 @@ import { SIDECAR_EVENT, SIDECAR_STATUS_EVENT } from '@devkit/protocol';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
+import type { Timings } from './timing.utils.js';
+import { takeTimings } from './timing.utils.js';
+
 /**
  * Frontend end of the sidecar protocol.
  *
@@ -39,12 +42,8 @@ export function send(command: Command): Promise<void> {
  *
  * Reading them clears them, so each report covers the interval since the last.
  */
-export function takeHandoverTimings(): { count: number; p50: number; p95: number } {
-  const sorted = [...handovers].sort((a, b) => a - b);
-  handovers.length = 0;
-  const at = (fraction: number) =>
-    Math.round(sorted[Math.floor((sorted.length - 1) * fraction)] ?? 0);
-  return { count: sorted.length, p50: at(0.5), p95: at(0.95) };
+export function takeHandoverTimings(): Timings {
+  return takeTimings(handovers);
 }
 
 /**

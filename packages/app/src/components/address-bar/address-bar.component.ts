@@ -5,6 +5,7 @@ import { customElement, property, query, state } from 'lit/decorators.js';
 import { DevkitElement } from '../../utils/base.utils.js';
 import * as history from '../../utils/history.utils.js';
 import styles from './address-bar.component.css';
+import { cycleIndex, withoutScheme } from './address-bar.utils.js';
 
 /** How many history matches are offered at once. */
 const SUGGESTION_LIMIT = 8;
@@ -109,8 +110,7 @@ export class AddressBarComponent extends DevkitElement.withStyles(styles) {
     }
     event.preventDefault();
     const delta = event.key === 'ArrowDown' ? 1 : -1;
-    const count = this.suggestions.length;
-    this.selected = this.selected + delta < 0 ? count - 1 : (this.selected + delta) % count;
+    this.selected = cycleIndex(this.selected, delta, this.suggestions.length);
   }
 
   override render() {
@@ -154,7 +154,7 @@ export class AddressBarComponent extends DevkitElement.withStyles(styles) {
                 this.navigate(visit.url);
               }}
             >
-              <span class="url">${visit.url.replace(/^https?:\/\//, '')}</span>
+              <span class="url">${withoutScheme(visit.url)}</span>
               ${visit.title ? html`<span class="title">${visit.title}</span>` : nothing}
             </li>
           `

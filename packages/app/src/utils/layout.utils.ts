@@ -23,6 +23,11 @@ export function storedSplit(): SplitDirection {
   }
 }
 
+/** The split the panes are not in, which is the one a toggle asks for. */
+export function oppositeSplit(split: SplitDirection): SplitDirection {
+  return split === 'horizontal' ? 'vertical' : 'horizontal';
+}
+
 export function storeSplit(split: SplitDirection): void {
   try {
     localStorage.setItem(KEY, split);
