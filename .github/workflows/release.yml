@@ -1,0 +1,182 @@
+name: Release
+
+# On a push to main, the way bumper does it: release-it decides whether there is
+# anything to release from the conventional commits since the last tag, bumps,
+# writes the changelog and pushes the tag. The binaries are built afterwards and
+# attached to a draft release, which is published only once they all arrive —
+# the updater reads the latest *published* release, so publishing first would
+# announce a version nobody can download yet.
+on:
+  push:
+    branches: [main]
+
+# Two pushes to main must not run release-it at the same time: they would race
+# over the version and the tag. An in-flight release is never cancelled.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    uses: ./.github/workflows/check.yml
+
+  release:
+    name: Bump and tag
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      released: ${{ steps.version.outputs.released }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Configure git identity
+        run: |
+          git config user.name "${{ github.actor }}"
+          git config user.email "${{ github.actor }}@users.noreply.github.com"
+
+      # Config in .release-it.json. No-op when nothing releasable has landed.
+      # The release commit is pushed with GITHUB_TOKEN, so it does not trigger
+      # this workflow again.
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bunx -p release-it -p @release-it/conventional-changelog release-it --ci
+
+      - name: Resolve released version
+        id: version
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if git rev-parse -q --verify "refs/tags/v${version}" >/dev/null; then
+            echo "tag=v${version}" >> "$GITHUB_OUTPUT"
+            echo "released=true" >> "$GITHUB_OUTPUT"
+            echo "Released ${version} :rocket:" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            echo "Nothing releasable since the last tag." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+  build:
+    name: Build (${{ matrix.label }})
+    needs: release
+    if: needs.release.outputs.released == 'true'
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos (apple silicon)
+            platform: macos-latest
+            args: --target aarch64-apple-darwin
+            rust-targets: aarch64-apple-darwin
+          - label: macos (intel)
+            platform: macos-13
+            args: --target x86_64-apple-darwin
+            rust-targets: x86_64-apple-darwin
+
+    steps:
+      # The tag release-it just pushed, not the commit this run started from.
+      - name: Checkout the released tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.release.outputs.tag }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      # The sidecar ships as a bundled binary and refuses to be built by a Node
+      # other than the one .node-version names.
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+          key: ${{ matrix.rust-targets }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build and upload artifacts
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Without these the updater artifacts are unsigned, and an unsigned
+          # update is one the app refuses to install.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ needs.release.outputs.tag }}
+          releaseName: DevKit ${{ needs.release.outputs.tag }}
+          releaseBody: |
+            The engines download themselves on first launch; the app is the small part.
+
+            See the assets below to install, or use the update button in the toolbar.
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          args: ${{ matrix.args }}
+
+  publish:
+    name: Publish the release
+    needs: [release, build]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ needs.release.outputs.tag }}" --draft=false --repo "${{ github.repository }}"
+
+  # A build that failed leaves a draft release nobody can use and a version
+  # already spent. The tag and the bump stay: they are on main by then, and
+  # rewriting main to take a version back is worse than skipping a number.
+  cleanup:
+    name: Remove the unfinished release
+    needs: [release, build]
+    if: ${{ failure() && needs.release.outputs.released == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Delete the draft release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete "${{ needs.release.outputs.tag }}" --yes --repo "${{ github.repository }}" \
+            || echo "No draft release to remove for ${{ needs.release.outputs.tag }}."

@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "after:bump": ["node scripts/sync-version.mjs", "git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"]
+  },
+  "npm": {
+    "publish": false,
+    "skipChecks": true
+  },
+  "github": {
+    "release": false
+  },
+  "git": {
+    "commitMessage": "chore: release v${version}",
+    "tagName": "v${version}",
+    "tagAnnotation": "DevKit ${version}",
+    "pushArgs": ["--follow-tags"]
+  },
+  "plugins": {
+    "@release-it/conventional-changelog": {
+      "infile": "CHANGELOG.md",
+      "header": "# DevKit",
+      "preset": "angular"
+    }
+  }
+}

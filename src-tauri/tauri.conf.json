@@ -7,7 +7,7 @@
   "build": {
     "beforeDevCommand": "bun run dev:frontend",
     "devUrl": "http://localhost:1430",
-    "beforeBuildCommand": "bun run build:frontend",
+    "beforeBuildCommand": "bun run build:libs && bun run bundle:sidecar && bun run prepare:sidecar && bun run build:frontend",
     "frontendDist": "../packages/app/dist"
   },
   "app": {
@@ -37,7 +37,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/devkit-node"],
+    "externalBin": [
+      "binaries/devkit-node"
+    ],
     "resources": {
       "sidecar-bundle": "sidecar"
     },

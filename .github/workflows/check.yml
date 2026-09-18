@@ -1,0 +1,80 @@
+name: Check
+
+on:
+  pull_request:
+  workflow_call:
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The app imports the protocol package's build output, not its source.
+      - name: Build workspace libraries
+        run: bun run build:libs
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+  rust:
+    name: Check the Rust side
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: package.json
+
+      # The sidecar ships as a bundled binary and refuses to be staged by a Node
+      # other than the one .node-version names.
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version-file: .node-version
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # `tauri::generate_context!` reads the frontend dist and the staged sidecar,
+      # so both have to exist before anything can compile — even to be checked.
+      - name: Stage what the crate expects
+        run: bun run build:libs && bun run bundle:sidecar && bun run prepare:sidecar && bun run build:frontend
+
+      # No `cargo fmt --check`: the crate has never been formatted and adopting
+      # rustfmt would rewrite it wholesale, which is a decision of its own.
+      - name: Clippy
+        working-directory: src-tauri
+        run: cargo clippy --all-targets -- -D warnings
