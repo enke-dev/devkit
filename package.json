@@ -22,9 +22,10 @@
     "generate:icon:macos": "shx cp assets/icon-macos.icns src-tauri/icons/icon.icns",
     "sidecar:dev": "bun run --filter @devkit/sidecar dev",
     "tauri": "tauri",
-    "typecheck": "bun run --filter '*' typecheck",
-    "lint": "bun run --parallel --filter '*' lint",
-    "format": "bun run --parallel --filter '*' format",
+    "check": "bun run --filter '*' check",
+    "format": "bun --bun run --filter '*' format",
+    "lint": "bun --bun run --filter '*' lint",
+    "test": "bun run --filter '!@optiscaners/pitstop.e2e' test",
     "verify:screencast": "bun run --filter @devkit/sidecar verify:screencast",
     "verify:settle": "bun run --filter @devkit/sidecar verify:settle",
     "verify:recovery": "bun run --filter @devkit/sidecar verify:recovery"

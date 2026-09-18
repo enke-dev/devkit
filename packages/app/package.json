@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit",
     "lint": "bun run --parallel lint:*",
     "lint:prettier": "bun --bun prettier --config prettier.config.ts --check .",
     "lint:eslint": "bun --bun eslint --config eslint.config.ts",

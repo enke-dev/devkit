@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "tsc -p tsconfig.json --noEmit",
     "lint": "bun run --parallel lint:*",
     "lint:prettier": "bun --bun prettier --config prettier.config.ts --check .",
     "lint:eslint": "bun --bun eslint --config eslint.config.ts",
