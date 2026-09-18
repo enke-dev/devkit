@@ -1,0 +1,25 @@
+.devkit-updater*
+
+# dependencies
+node_modules/
+
+# build output
+dist/
+target/
+*.tsbuildinfo
+
+# rust
+src-tauri/gen/
+src-tauri/binaries/
+
+# os
+.DS_Store
+
+# editor
+.vscode/
+.idea/
+*.xcodeproj/
+
+# `tauri icon` writes a set for every platform it knows; DevKit is desktop only.
+src-tauri/icons/android/
+src-tauri/icons/ios/

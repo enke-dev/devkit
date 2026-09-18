@@ -1,0 +1,43 @@
+{
+  "name": "devkit",
+  "version": "0.0.0",
+  "private": true,
+  "packageManager": "bun@1.4.2",
+  "type": "module",
+  "description": "Cross-platform multi-engine browser preview: WebKit, Chromium and Gecko side by side.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run build:libs && bun run bundle:sidecar && bun run prepare:sidecar && bun run tauri dev",
+    "build": "bun run build:libs && bun run bundle:sidecar && bun run prepare:sidecar && bun run tauri build",
+    "build:libs": "bun run --filter @devkit/protocol build && bun run --filter @devkit/sidecar build",
+    "bundle:sidecar": "bun run scripts/bundle-sidecar.mjs",
+    "prepare:sidecar": "bun run scripts/prepare-sidecar.mjs",
+    "dev:frontend": "bun run --filter @devkit/app dev",
+    "build:frontend": "bun run --filter @devkit/app build",
+    "generate": "bun run generate:icons",
+    "generate:icons": "bun run --sequential generate:icon:*",
+    "generate:icon:default": "tauri icon assets/icon-default.svg",
+    "generate:icon:macos": "shx cp assets/icon-macos.icns src-tauri/icons/icon.icns",
+    "sidecar:dev": "bun run --filter @devkit/sidecar dev",
+    "tauri": "tauri",
+    "typecheck": "bun run --filter '*' typecheck",
+    "lint": "bun run --parallel --filter '*' lint",
+    "format": "bun run --parallel --filter '*' format",
+    "verify:screencast": "bun run --filter @devkit/sidecar verify:screencast",
+    "verify:settle": "bun run --filter @devkit/sidecar verify:settle",
+    "verify:recovery": "bun run --filter @devkit/sidecar verify:recovery"
+  },
+  "devDependencies": {
+    "@awmottaz/prettier-plugin-void-html": "2.2.1",
+    "@enke.dev/lint": "0.13.9",
+    "@tauri-apps/cli": "2.11.4",
+    "eslint": "10.8.1",
+    "jiti": "2.7.0",
+    "prettier": "3.9.6",
+    "shx": "0.4.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.67.0"
+  }
+}
