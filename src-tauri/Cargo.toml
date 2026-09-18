@@ -1,0 +1,61 @@
+[package]
+name = "devkit"
+version = "0.1.0"
+description = "Cross-platform multi-engine browser preview"
+authors = ["David Enke"]
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "devkit_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6.3", features = [] }
+
+[dependencies]
+tauri = { version = "2.11.5", features = [] }
+tauri-plugin-shell = "2.3.6"
+tauri-plugin-updater = "2.11"
+tauri-plugin-process = "2.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+getrandom = "0.3"
+tokio = { version = "1", features = ["sync"] }
+base64 = "0.22"
+
+# The system's cursor images come out of the platform's own APIs: GDI bitmaps
+# that have to be blended with their mask on Windows, an NSCursor's NSImage on
+# macOS. Only the Windows path needs a PNG encoder; AppKit brings its own.
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_WindowsAndMessaging",
+] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSBitmapImageRep",
+  "NSCursor",
+  "NSImage",
+  "NSImageRep",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSData",
+  "NSDictionary",
+  "NSGeometry",
+  "NSString",
+] }
+
+
+
+
+
+[features]
+# Used by `tauri dev`/`tauri build` to opt into a custom protocol on desktop.
+custom-protocol = ["tauri/custom-protocol"]
