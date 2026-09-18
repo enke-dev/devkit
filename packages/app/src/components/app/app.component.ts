@@ -2,9 +2,10 @@ import '../navbar/navbar.component.js';
 import '../pane/pane.component.js';
 
 import type { Engine, Event, InputEvent, SidecarStatus, Viewport } from '@devkit/protocol';
-import { ENGINE_LABELS, ENGINES } from '@devkit/protocol';
+import { CHECK_FOR_UPDATES_EVENT, ENGINE_LABELS, ENGINES } from '@devkit/protocol';
 import { listenWindow } from '@enke.dev/lit-utils/lib/utils/event.utils.js';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { html, nothing } from 'lit';
 import { customElement, queryAll, state } from 'lit/decorators.js';
 import { when } from 'lit/directives/when.js';
@@ -49,6 +50,9 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
 
   /** Set while the newer version is being fetched and put in place. */
   @state() private accessor installingUpdate = false;
+
+  /** Said after a check that found nothing, so asking never looks ignored. */
+  @state() private accessor upToDate = false;
   @state() private accessor installed: Record<Engine, boolean> | null = null;
   @state() private accessor setupVisible = false;
   @state() private accessor setupLog = '';
@@ -500,6 +504,21 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   }
 
   /**
+   * Look for a newer DevKit.
+   *
+   * Asking and being told nothing is indistinguishable from asking and being
+   * ignored, so a check somebody made on purpose says so either way. The one on
+   * the way up stays quiet: nobody asked.
+   */
+  private async checkForUpdate({ asked = false } = {}): Promise<void> {
+    const update = await availableUpdate();
+    this.pendingUpdate = update;
+    if (asked && !update) {
+      this.upToDate = true;
+    }
+  }
+
+  /**
    * Replace this DevKit with the newer one and come back.
    *
    * The sidecar is a child of this process and its engines are children of
@@ -760,10 +779,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     }
 
     // Asked once, on the way up. A newer version is not news that needs to
-    // arrive while the app is being used.
-    void availableUpdate().then(update => {
-      this.pendingUpdate = update;
-    });
+    // arrive while the app is being used — but it can be asked for again, from
+    // the menu, which is the only way to find out without restarting.
+    void this.checkForUpdate();
+    void listen(CHECK_FOR_UPDATES_EVENT, () => void this.checkForUpdate({ asked: true }));
   }
 
   override updated(): void {
@@ -799,6 +818,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       <devkit-navbar
         .updateVersion=${this.pendingUpdate?.version ?? ''}
         .updating=${this.installingUpdate}
+        .upToDate=${this.upToDate}
+        @devkit-noticed=${() => {
+          this.upToDate = false;
+        }}
         .split=${this.split}
         .canGoBack=${this.canGoBack}
         .canGoForward=${this.canGoForward}

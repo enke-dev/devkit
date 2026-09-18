@@ -47,6 +47,10 @@ export class NavbarComponent extends DevkitElement.withStyles(styles) {
   @property({ type: Boolean, reflect: true })
   accessor updating = false;
 
+  /** Set when a check somebody asked for found nothing newer. */
+  @property({ type: Boolean, reflect: true, attribute: 'up-to-date' })
+  accessor upToDate = false;
+
   /** Where the panes are; handed straight to the address bar. */
   @property({ type: String, reflect: true })
   accessor url = '';
@@ -109,6 +113,14 @@ export class NavbarComponent extends DevkitElement.withStyles(styles) {
 
       <nav>
         ${this.renderSplitToggle()}
+        ${when(
+          this.upToDate,
+          () => html`
+            <button type="button" class="uptodate" @click=${() => this.emit('devkit-noticed')}>
+              Up to date
+            </button>
+          `
+        )}
         ${when(
           this.updateVersion !== '',
           () => html`

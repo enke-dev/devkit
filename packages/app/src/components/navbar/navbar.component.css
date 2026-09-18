@@ -38,6 +38,20 @@ ph-square-split-vertical {
   cursor: pointer;
 }
 
+/* The answer to a question nobody has to act on: same shape, no colour, and
+   it goes when clicked. */
+.uptodate {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
 .update:disabled {
   opacity: 0.6;
   cursor: default;

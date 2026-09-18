@@ -6,7 +6,8 @@ mod frames;
 mod protocol;
 mod sidecar;
 
-use tauri::{Manager, RunEvent};
+use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
+use tauri::{Emitter, Manager, RunEvent};
 
 use frames::FrameStore;
 use sidecar::Sidecar;
@@ -37,6 +38,59 @@ fn sidecar_restart(app: tauri::AppHandle) -> Result<(), String> {
     sidecar::spawn(&app)
 }
 
+/// The one thing worth a menu: asking whether there is a newer DevKit.
+///
+/// The check on the way up answers that once, and a window that has been open
+/// since yesterday has no way to ask again. Where it belongs differs by
+/// platform and both conventions are followed: the application menu on macOS,
+/// where everything of this kind lives, and a Help menu elsewhere, which is
+/// where Windows and Linux put it.
+fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
+    let check = MenuItemBuilder::with_id("check-for-updates", "Check for Updates…").build(app)?;
+
+    #[cfg(target_os = "macos")]
+    let menu = {
+        let application = SubmenuBuilder::new(app, "DevKit")
+            .item(&check)
+            .separator()
+            .services()
+            .separator()
+            .hide()
+            .hide_others()
+            .show_all()
+            .separator()
+            .quit()
+            .build()?;
+        // Without an Edit menu the standard editing shortcuts stop working in
+        // the address bar: on macOS they are the menu, not the text field.
+        let edit = SubmenuBuilder::new(app, "Edit")
+            .undo()
+            .redo()
+            .separator()
+            .cut()
+            .copy()
+            .paste()
+            .select_all()
+            .build()?;
+        MenuBuilder::new(app).items(&[&application, &edit]).build()?
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let menu = {
+        let help = SubmenuBuilder::new(app, "Help").item(&check).build()?;
+        MenuBuilder::new(app).items(&[&help]).build()?
+    };
+
+    app.set_menu(menu)?;
+    app.on_menu_event(|app, event| {
+        if event.id() == "check-for-updates" {
+            // The frontend owns the updater; this only says that somebody asked.
+            let _ = app.emit(protocol::CHECK_FOR_UPDATES_EVENT, ());
+        }
+    });
+    Ok(())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -56,6 +110,10 @@ pub fn run() {
             cursors::get_native_cursor_by_type
         ])
         .setup(|app| {
+            if let Err(error) = install_menu(&app.handle().clone()) {
+                eprintln!("[devkit] no menu: {error}");
+            }
+
             // Frames arrive over their own socket rather than as base64 on
             // stdout; the sidecar is told where to connect.
             match frame_channel::listen(&app.handle().clone()) {

@@ -213,6 +213,14 @@ export const FRAME_SCHEME = 'devkit-frame';
 export const FRAME_LATEST = 'latest';
 
 /** Tauri event channel every sidecar `Event` is re-emitted on. */
+/**
+ * Asked to look for a newer DevKit, from the menu rather than on the way up.
+ *
+ * The check at launch answers "is there one?" once; this answers it again when
+ * somebody wonders, which is the only way to find out without restarting.
+ */
+export const CHECK_FOR_UPDATES_EVENT = 'devkit://check-for-updates';
+
 export const SIDECAR_EVENT = 'devkit://sidecar';
 
 /** Tauri event channel for sidecar process-level trouble (spawn failure, crash, exit). */

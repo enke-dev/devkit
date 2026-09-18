@@ -9,6 +9,10 @@ use serde::Serialize;
 /// URI scheme the frontend fetches frame bytes on. Mirrors `FRAME_SCHEME`.
 pub const FRAME_SCHEME: &str = "devkit-frame";
 
+/// Tauri event channel asking the frontend to look for a newer DevKit.
+/// Mirrors `CHECK_FOR_UPDATES_EVENT`.
+pub const CHECK_FOR_UPDATES_EVENT: &str = "devkit://check-for-updates";
+
 /// Tauri event channel carrying every sidecar protocol event, verbatim.
 pub const SIDECAR_EVENT: &str = "devkit://sidecar";
 
