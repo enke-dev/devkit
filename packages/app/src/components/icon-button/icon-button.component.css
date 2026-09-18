@@ -1,0 +1,39 @@
+:host {
+  display: inline-flex;
+}
+
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  /* The glyph is a flex item, and a button carries padding of its own unless
+     told otherwise — which leaves it too little width to grow into and caps it
+     at whatever the padding spares. */
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  /* The glyph sizes itself in `em` and paints in `currentColor`, so the button
+     is the only place either is stated. Stated as a variable because a fixed
+     value here would beat anything the caller inherits down. */
+  font-size: var(--icon-size, 16px);
+  line-height: 1;
+  cursor: pointer;
+}
+
+button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -2px;
+}

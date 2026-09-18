@@ -1,0 +1,62 @@
+:host {
+  display: flex;
+  flex-flow: row nowrap;
+  gap: 10px;
+  align-items: center;
+  height: var(--toolbar-height);
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+nav {
+  display: flex;
+  gap: 2px;
+}
+
+devkit-address-bar {
+  flex: 1;
+}
+
+ph-square-split-horizontal,
+ph-square-split-vertical {
+  font-size: 20px;
+}
+
+/* Offered only when there is something newer to install. Shaped like the badge
+   beside it, in the colour of something worth doing rather than something
+   wrong. */
+.update {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.update:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Shown only when something has gone wrong; a working app needs no badge.
+   A button, not a tinted div: pressing it restarts the sidecar, so it has to
+   be reachable by keyboard like anything else that acts. */
+.problem {
+  max-width: 320px;
+  padding: 3px 9px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+  font: inherit;
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}

@@ -1,0 +1,33 @@
+{
+  "name": "@devkit/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run --parallel lint:*",
+    "lint:prettier": "bun --bun prettier --config prettier.config.ts --check .",
+    "lint:eslint": "bun --bun eslint --config eslint.config.ts",
+    "format": "bun run --sequential format:*",
+    "format:prettier": "bun --bun prettier --config prettier.config.ts --write .",
+    "format:eslint": "bun --bun eslint --config eslint.config.ts --fix"
+  },
+  "dependencies": {
+    "@enke.dev/lit-utils": "0.6.0",
+    "@fortawesome/free-brands-svg-icons": "7.3.1",
+    "@phosphor-icons/webcomponents": "2.1.5",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-process": "2.3.1",
+    "@tauri-apps/plugin-updater": "2.11.0",
+    "lit": "3.3.3"
+  },
+  "devDependencies": {
+    "@devkit/protocol": "workspace:*",
+    "typescript": "5.9.3",
+    "vite": "8.3.0",
+    "vite-plugin-lit-css": "3.1.0"
+  }
+}

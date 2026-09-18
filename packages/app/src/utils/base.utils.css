@@ -1,0 +1,12 @@
+/* Shadow roots inherit neither of these, so every component would otherwise
+   restate them. */
+:host,
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:host {
+  font: inherit;
+}

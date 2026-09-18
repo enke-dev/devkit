@@ -1,0 +1,59 @@
+/**
+ * Global styles, kept to what no component can own: the palette every component
+ * reads, and the page shell the app sits in.
+ *
+ * Everything else lives in the component it belongs to — see
+ * `components/devkit-*.ts`.
+ */
+
+:root {
+  --bg: #f4f4f5;
+  --bg-raised: #ffffff;
+  --border: #d9d9de;
+  --text: #1b1b1f;
+  --text-dim: #6b6b76;
+  --text-muted: #9a9aa6;
+  --accent: #3b6ef5;
+  --danger: #c23b3b;
+  --ok: #3aa675;
+  --pending: #c9903a;
+  --toolbar-height: 44px;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17171a;
+    --bg-raised: #212126;
+    --border: #35353d;
+    --text: #ececf1;
+    --text-dim: #9a9aa6;
+    --text-muted: #6b6b76;
+    --accent: #6f95ff;
+    --danger: #ff7b7b;
+    --ok: #4cc48d;
+    --pending: #e0a94e;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    13px/1.4 system-ui,
+    -apple-system,
+    'Segoe UI',
+    sans-serif;
+}

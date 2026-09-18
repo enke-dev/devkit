@@ -1,0 +1,225 @@
+:host {
+  --status-color: var(--text-dim);
+
+  display: grid;
+  grid-template-rows: 26px 1fr;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-raised);
+}
+
+header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+:host([active]) header {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.title {
+  display: inline-flex;
+  flex: none;
+  gap: 3px;
+  align-items: center;
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* Sized in `em` and filled with `currentColor`: the mark follows the title it
+   sits in front of, including when the pane is the active one. */
+svg.engine {
+  flex: none;
+  width: 1.2em;
+  height: 1.2em;
+  margin-right: 3px;
+  fill: currentColor;
+}
+
+:host([active]) .title {
+  color: var(--accent);
+}
+
+:host([solo]:not([active])) header {
+  opacity: 0.45;
+}
+
+/* The browser build behind the engine: identifying, not headline, and the
+   part of the header allowed to shrink. */
+.version {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The size the page is laid out at. Shared by every pane, and stated in each:
+   it is the number you quote when a render differs, so it belongs next to the
+   render rather than once somewhere else. */
+.dims {
+  flex: none;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.meter {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.status {
+  color: var(--status-color);
+}
+
+.status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: 1px;
+}
+
+.surface {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  /* Dragging across a pane is a drag in the page, not a text selection in
+     the app's own UI. */
+  user-select: none;
+  background: repeating-conic-gradient(
+      color-mix(in srgb, var(--text) 4%, transparent) 0% 25%,
+      transparent 0% 50%
+    )
+    50% / 16px 16px;
+}
+
+img {
+  display: block;
+  /* Sized in script to the engine's viewport, keeping frames 1:1 so a click
+     lands on the pixel the user aimed at. */
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+:host([has-frame]) img {
+  opacity: 1;
+}
+
+.detail {
+  position: absolute;
+  inset: auto 10px 10px;
+  margin: 0;
+  color: var(--danger);
+  font-size: 11px;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  gap: 12px;
+  place-content: center;
+  justify-items: center;
+  padding: 20px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.empty p {
+  max-width: 24ch;
+  margin: 0;
+}
+
+.progress {
+  max-width: 34ch;
+  margin: 0;
+  font:
+    10px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  overflow-wrap: anywhere;
+}
+
+button.install {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+button.install:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Stand-in pointer ----------------------------------------------------- */
+
+.cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  /* Never intercept the pointer: this is a picture of a cursor, not a target. */
+  pointer-events: none;
+}
+
+.cursor.native {
+  background-repeat: no-repeat;
+  will-change: transform;
+}
+
+/* A system image cannot be recoloured, so a press is shown around it instead. */
+.cursor.native[data-pressed='true'] {
+  filter: drop-shadow(0 0 3px var(--accent));
+}
+
+/* The white edge system cursors carry: the same path drawn wider and
+   behind, which is what keeps them legible over any page. */
+.halo {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.shape {
+  fill: #000;
+  stroke: #000;
+  stroke-width: 0.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Line-drawn shapes — the I-beam — must not be filled. */
+svg.cursor[data-stroked='true'] .shape {
+  fill: none;
+  stroke-width: 1.5;
+}
+
+svg.cursor[data-stroked='true'] .halo {
+  stroke-width: 3.5;
+}
+
+/* Pressed is the one moment worth colouring, since nothing else shows a click. */
+svg.cursor[data-pressed='true'] .shape {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
