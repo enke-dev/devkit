@@ -1,5 +1,16 @@
 # DevKit
 
+# [0.3.0](https://github.com/enke-dev/devkit/compare/v0.2.0...v0.3.0) (2026-09-18)
+
+### Bug Fixes
+
+* keep fps readout steady once a pane settles ([f136743](https://github.com/enke-dev/devkit/commit/f13674371665d7520f47bc123b9420a547000704))
+
+### Features
+
+* open a pane's page in a headed window ([1f54426](https://github.com/enke-dev/devkit/commit/1f54426291f462d4d06d871e39977ce0884315a3))
+* per-pane colour scheme ([73655df](https://github.com/enke-dev/devkit/commit/73655dfa39037ffe957b9c520affa18c355b0da5))
+
 # [0.2.0](https://github.com/enke-dev/devkit/compare/v0.1.1...v0.2.0) (2026-09-18)
 
 ### Features
