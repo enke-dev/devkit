@@ -1,5 +1,11 @@
 # DevKit
 
+## [0.3.1](https://github.com/enke-dev/devkit/compare/v0.3.0...v0.3.1) (2026-09-18)
+
+### Bug Fixes
+
+* ship the sidecar entry where the app looks for it ([f842d5a](https://github.com/enke-dev/devkit/commit/f842d5a2453b7182eda73f27908d8a10ceab77d5))
+
 # [0.3.0](https://github.com/enke-dev/devkit/compare/v0.2.0...v0.3.0) (2026-09-18)
 
 ### Bug Fixes
