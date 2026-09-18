@@ -1,6 +1,6 @@
 import '../pane-navbar/pane-navbar.component.js';
 
-import type { Engine, Event, PaneStatus, Viewport } from '@devkit/protocol';
+import type { ColorScheme, Engine, Event, PaneStatus, Viewport } from '@devkit/protocol';
 import { ENGINE_LABELS, FRAME_LATEST } from '@devkit/protocol';
 import { html, nothing, svg } from 'lit';
 import { customElement, property, query, state } from 'lit/decorators.js';
@@ -18,6 +18,7 @@ import {
   fitsViewport,
   frameRateLabel,
   frameUrl,
+  hostColorScheme,
   isRunning,
   pointWithin,
   recordFrameTime,
@@ -84,6 +85,20 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
 
   @state()
   private accessor rate = '';
+
+  /**
+   * The scheme this pane's page is told the user prefers.
+   *
+   * Seeded from the host and then the pane's own: it lives here, not in the
+   * sidecar, because this element outlives the engine — a pane relaunched after
+   * a crash or a sidecar restart is started again in the scheme it was in.
+   */
+  @state()
+  private accessor scheme: ColorScheme = hostColorScheme();
+
+  get colorScheme(): ColorScheme {
+    return this.scheme;
+  }
 
   @state()
   private accessor progress = '';
@@ -199,6 +214,18 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
     this.setState(frame.sharp === true ? 'settled' : 'stream');
     this.#frameTimes = recordFrameTime(this.#frameTimes, performance.now());
     this.rate = frameRateLabel(this.#frameTimes);
+  }
+
+  /** Flip the scheme and say so, for whoever tells the engine. */
+  private toggleColorScheme(): void {
+    this.scheme = this.scheme === 'dark' ? 'light' : 'dark';
+    this.dispatchEvent(
+      new CustomEvent('devkit-color-scheme', {
+        detail: { engine: this.engine, scheme: this.scheme },
+        bubbles: true,
+        composed: true,
+      })
+    );
   }
 
   showProgress(message: string): void {
@@ -340,8 +367,15 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
         .dims=${this.dims}
         .rate=${this.rate}
         .status=${this.status}
+        .colorScheme=${this.scheme}
         ?active=${this.active}
         ?solo=${this.solo}
+        @devkit-color-scheme=${(event: CustomEvent) => {
+          // The header's event is a click; the one that leaves the pane names
+          // the engine and the scheme, and only that one goes further.
+          event.stopPropagation();
+          this.toggleColorScheme();
+        }}
       ></devkit-pane-navbar>
       <div class="surface">
         <img alt="${label} rendering" decoding="async">
@@ -443,5 +477,6 @@ declare global {
   }
   interface HTMLElementEventMap {
     'devkit-install': CustomEvent<Engine>;
+    'devkit-color-scheme': CustomEvent<{ engine: Engine; scheme: ColorScheme }>;
   }
 }

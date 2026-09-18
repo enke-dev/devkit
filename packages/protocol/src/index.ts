@@ -18,6 +18,15 @@ export const ENGINE_LABELS: Record<Engine, string> = {
   webkit: 'WebKit',
 };
 
+/**
+ * The scheme a page is told the user prefers.
+ *
+ * Playwright emulates `prefers-color-scheme` per context and defaults it to
+ * light, whatever the host machine is set to — so it is always stated, never
+ * inherited.
+ */
+export type ColorScheme = 'light' | 'dark';
+
 export interface Viewport {
   width: number;
   height: number;
@@ -38,7 +47,7 @@ export type Command =
    */
   | { type: 'install'; engines?: Engine[] }
   /** Launch the given engines and start capturing. Idempotent per engine. */
-  | { type: 'start'; engines: Engine[]; viewport: Viewport }
+  | { type: 'start'; engines: Engine[]; viewport: Viewport; colorScheme: ColorScheme }
   /**
    * Navigate every running pane to the same URL (lockstep navigation).
    *
@@ -50,6 +59,14 @@ export type Command =
   | { type: 'reload' }
   /** Resize every pane's viewport. Frames after this arrive at the new size. */
   | { type: 'resize'; viewport: Viewport }
+  /**
+   * Tell one pane's page which colour scheme the user prefers.
+   *
+   * Per pane rather than lockstep: seeing one engine's dark rendering beside
+   * another's light one is a comparison worth making. Applied in place, so no
+   * relaunch and no frame is lost to it.
+   */
+  | { type: 'color-scheme'; engine: Engine; scheme: ColorScheme }
   /**
    * Replay a user input event in one pane, or in all of them at once.
    *

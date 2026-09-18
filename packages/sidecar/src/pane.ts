@@ -1,4 +1,4 @@
-import type { Engine, InputEvent, Viewport } from '@devkit/protocol';
+import type { ColorScheme, Engine, InputEvent, Viewport } from '@devkit/protocol';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { chromium, firefox, webkit } from 'playwright';
 
@@ -171,6 +171,8 @@ export class Pane {
   #screencast: Screencast | null = null;
 
   #viewport: Viewport;
+  /** What the page is told the user prefers; a context option, so kept for relaunches. */
+  #colorScheme: ColorScheme;
   #seq = 0;
   #capturing = false;
   #settleTimer: NodeJS.Timeout | null = null;
@@ -220,9 +222,10 @@ export class Pane {
   /** Frames ignored as the settled pane's own doing, since it last really changed. */
   #explainedFrames = 0;
 
-  constructor(engine: Engine, viewport: Viewport) {
+  constructor(engine: Engine, viewport: Viewport, colorScheme: ColorScheme) {
     this.engine = engine;
     this.#viewport = viewport;
+    this.#colorScheme = colorScheme;
   }
 
   get page(): Page | null {
@@ -352,7 +355,22 @@ export class Pane {
     return this.#browser.newContext({
       viewport: { width: this.#viewport.width, height: this.#viewport.height },
       deviceScaleFactor: this.#viewport.scale,
+      colorScheme: this.#colorScheme,
     });
+  }
+
+  /**
+   * Switch the scheme the page is told the user prefers.
+   *
+   * Emulated per page and applied in place: the page's media queries
+   * re-evaluate and its `matchMedia` listeners fire, nothing relaunches. It is
+   * remembered as well, so a pane relaunched for a DPR change comes back in the
+   * scheme it was in rather than in Playwright's default.
+   */
+  async setColorScheme(scheme: ColorScheme): Promise<void> {
+    this.#note(`scheme:${scheme}`);
+    this.#colorScheme = scheme;
+    await this.#page?.emulateMedia({ colorScheme: scheme });
   }
 
   /**

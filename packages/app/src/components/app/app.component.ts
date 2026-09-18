@@ -1,7 +1,14 @@
 import '../app-navbar/app-navbar.component.js';
 import '../pane/pane.component.js';
 
-import type { Engine, Event, InputEvent, SidecarStatus, Viewport } from '@devkit/protocol';
+import type {
+  ColorScheme,
+  Engine,
+  Event,
+  InputEvent,
+  SidecarStatus,
+  Viewport,
+} from '@devkit/protocol';
 import { CHECK_FOR_UPDATES_EVENT, ENGINE_LABELS, ENGINES } from '@devkit/protocol';
 import { listenWindow } from '@enke.dev/lit-utils/lib/utils/event.utils.js';
 import { invoke } from '@tauri-apps/api/core';
@@ -23,6 +30,7 @@ import type { AvailableUpdate } from '../../utils/update.utils.js';
 import { availableUpdate } from '../../utils/update.utils.js';
 import type { AppNavbarComponent } from '../app-navbar/app-navbar.component.js';
 import type { PaneComponent } from '../pane/pane.component.js';
+import { hostColorScheme } from '../pane/pane.utils.js';
 import styles from './app.component.css';
 import {
   countReceivedFrame,
@@ -571,14 +579,29 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.#lastViewport = viewport;
     this.panes.forEach(pane => pane.applyViewport(viewport));
     this.#started = true;
+    // Panes come up in the host's scheme; one that was switched before its
+    // engine died is put back into its own once the engine is up again.
+    const colorScheme = hostColorScheme();
     try {
-      await send({ type: 'start', engines: pending, viewport });
+      await send({ type: 'start', engines: pending, viewport, colorScheme });
+      await Promise.all(
+        pending
+          .map(engine => this.pane(engine))
+          .filter(
+            (pane): pane is PaneComponent => pane !== undefined && pane.colorScheme !== colorScheme
+          )
+          .map(pane => this.setColorScheme(pane.engine, pane.colorScheme))
+      );
       this.problem = '';
       this.navigate(lastVisited());
     } catch (error) {
       pending.forEach(engine => this.#running.delete(engine));
       this.reportError(error);
     }
+  }
+
+  private setColorScheme(engine: Engine, scheme: ColorScheme): Promise<void> {
+    return send({ type: 'color-scheme', engine, scheme }).catch(error => this.reportError(error));
   }
 
   /**
@@ -810,6 +833,8 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         class="panes"
         data-split=${this.split}
         @devkit-install=${(event: CustomEvent<Engine>) => this.requestInstall([event.detail])}
+        @devkit-color-scheme=${(event: CustomEvent<{ engine: Engine; scheme: ColorScheme }>) =>
+          void this.setColorScheme(event.detail.engine, event.detail.scheme)}
       >
         ${ENGINES.map(engine => html`<devkit-pane .engine=${engine}></devkit-pane>`)}
       </main>

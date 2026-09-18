@@ -1,4 +1,4 @@
-import type { Engine, Viewport } from '@devkit/protocol';
+import type { ColorScheme, Engine, Viewport } from '@devkit/protocol';
 import { FRAME_SCHEME } from '@devkit/protocol';
 
 import type { ViewStatus } from '../pane-navbar/pane-navbar.utils.js';
@@ -96,6 +96,17 @@ export function safeCursorCss(css: string): string {
  */
 export function frameUrl(engine: Engine, seq: number | string): string {
   return `${FRAME_ORIGIN}/${engine}/${seq}`;
+}
+
+/**
+ * The scheme the host machine is set to, which is where a pane starts.
+ *
+ * Read once at start rather than followed: Playwright would otherwise render
+ * every page light regardless, and the host's setting is the least surprising
+ * thing to seed a pane with. From there each pane is switched on its own.
+ */
+export function hostColorScheme(): ColorScheme {
+  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
 export function isRunning(status: ViewStatus): boolean {

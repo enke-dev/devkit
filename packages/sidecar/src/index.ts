@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 
-import type { Engine, Event, Request, Viewport } from '@devkit/protocol';
+import type { ColorScheme, Engine, Event, Request, Viewport } from '@devkit/protocol';
 import { ENGINES } from '@devkit/protocol';
 
 import { install, probe } from './browsers.js';
@@ -30,6 +30,7 @@ function greeting(): Event {
 
 const panes = new Map<Engine, Pane>();
 let viewport: Viewport = { width: 1280, height: 800, scale: 1 };
+let colorScheme: ColorScheme = 'light';
 
 /** Run an action on every live pane, reporting per-engine failures without failing the batch. */
 async function forEachPane(action: (pane: Pane) => Promise<void>): Promise<void> {
@@ -82,8 +83,13 @@ function resetCursor(): void {
   lastCursorCss.clear();
 }
 
-async function start(engines: Engine[], nextViewport: Viewport): Promise<void> {
+async function start(
+  engines: Engine[],
+  nextViewport: Viewport,
+  nextColorScheme: ColorScheme
+): Promise<void> {
   viewport = nextViewport;
+  colorScheme = nextColorScheme;
   const wanted = engines.filter(engine => ENGINES.includes(engine));
 
   await Promise.allSettled(
@@ -111,7 +117,7 @@ async function start(engines: Engine[], nextViewport: Viewport): Promise<void> {
         await existing.close().catch(() => {});
       }
 
-      const pane = new Pane(engine, viewport);
+      const pane = new Pane(engine, viewport, colorScheme);
       panes.set(engine, pane);
       try {
         await pane.start();
@@ -141,7 +147,7 @@ async function handle(request: Request): Promise<void> {
     }
 
     case 'start':
-      await start(request.engines, request.viewport);
+      await start(request.engines, request.viewport, request.colorScheme);
       return;
 
     case 'navigate':
@@ -157,6 +163,10 @@ async function handle(request: Request): Promise<void> {
     case 'resize':
       viewport = request.viewport;
       await forEachPane(pane => pane.resize(viewport));
+      return;
+
+    case 'color-scheme':
+      await panes.get(request.engine)?.setColorScheme(request.scheme);
       return;
 
     case 'input': {

@@ -60,6 +60,11 @@ svg.engine {
   font-variant-numeric: tabular-nums;
 }
 
+ph-moon,
+ph-sun {
+  font-size: 13px;
+}
+
 .meter {
   margin-left: auto;
   color: var(--text-dim);
