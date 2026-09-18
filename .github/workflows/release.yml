@@ -90,14 +90,24 @@ jobs:
             platform: macos-latest
             args: --target aarch64-apple-darwin
             rust-targets: aarch64-apple-darwin
-            node-arch: arm64
-          # Cross-compiled rather than built on an Intel runner: GitHub has
+          # Cross-compiled on Linux rather than built on a Windows runner:
+          # Linux minutes bill at a tenth of macOS and half of Windows, and the
+          # runners are quicker besides.
+          - label: windows (x64, cross)
+            platform: ubuntu-latest
+            args: --target x86_64-pc-windows-msvc --runner cargo-xwin
+            rust-targets: x86_64-pc-windows-msvc
+            node-dist: win-x64
+          # Intel macs build by cross-compiling on Apple Silicon — GitHub has
           # retired the macos-13 image, so a job asking for one waits forever.
-          - label: macos (intel)
-            platform: macos-latest
-            args: --target x86_64-apple-darwin
-            rust-targets: x86_64-apple-darwin
-            node-arch: x64
+          # It works; it is off because nobody here runs one. To bring it back,
+          # uncomment this and nothing else: `node-arch` is what tells the step
+          # below to fetch a Node the runner cannot provide itself.
+          # - label: macos (intel)
+          #   platform: macos-latest
+          #   args: --target x86_64-apple-darwin
+          #   rust-targets: x86_64-apple-darwin
+          #   node-dist: darwin-x64
 
     steps:
       # The tag release-it just pushed, not the commit this run started from.
@@ -118,15 +128,45 @@ jobs:
         with:
           node-version-file: .node-version
 
-      # The sidecar *is* a Node binary, so it has to be the one for the
-      # architecture being built rather than the one this runner happens to be.
+      # The sidecar *is* a Node binary, so it has to be the one for the app being
+      # built, not the one this runner happens to be. A runner building for
+      # itself already has the right one; a cross-build says which to fetch.
       - name: Fetch the Node build for this target
+        if: matrix.node-dist != ''
         run: |
           version="$(cat .node-version)"
-          curl -fsSL "https://nodejs.org/dist/${version}/node-${version}-darwin-${{ matrix.node-arch }}.tar.gz" \
-            | tar -xz -C "${RUNNER_TEMP}"
-          echo "DEVKIT_NODE_BINARY=${RUNNER_TEMP}/node-${version}-darwin-${{ matrix.node-arch }}/bin/node" >> "$GITHUB_ENV"
+          name="node-${version}-${{ matrix.node-dist }}"
+          case "${{ matrix.node-dist }}" in
+            win-*)
+              curl -fsSL -o "${RUNNER_TEMP}/node.zip" "https://nodejs.org/dist/${version}/${name}.zip"
+              unzip -q "${RUNNER_TEMP}/node.zip" -d "${RUNNER_TEMP}"
+              echo "DEVKIT_NODE_BINARY=${RUNNER_TEMP}/${name}/node.exe" >> "$GITHUB_ENV"
+              ;;
+            *)
+              curl -fsSL "https://nodejs.org/dist/${version}/${name}.tar.gz" | tar -xz -C "${RUNNER_TEMP}"
+              echo "DEVKIT_NODE_BINARY=${RUNNER_TEMP}/${name}/bin/node" >> "$GITHUB_ENV"
+              ;;
+          esac
           echo "DEVKIT_TARGET=${{ matrix.rust-targets }}" >> "$GITHUB_ENV"
+
+      - name: Cache cargo-xwin and the Windows SDK it downloads
+        if: matrix.platform == 'ubuntu-latest'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/cargo-xwin
+            ~/.cache/xwin
+          key: cargo-xwin-${{ runner.os }}-v1
+
+      # `cargo-xwin` supplies the Windows SDK and CRT; NSIS builds the installer,
+      # and tauri looks for it under the name it has on Windows.
+      - name: Install the Windows cross-compilation toolchain
+        if: matrix.platform == 'ubuntu-latest'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q llvm clang lld nsis
+          sudo ln -sf "$(command -v makensis)" /usr/local/bin/makensis.exe
+          command -v cargo-xwin >/dev/null 2>&1 || cargo install --locked cargo-xwin
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable

@@ -51,15 +51,16 @@ function resolveNode() {
   throw new Error('Node.js not found on PATH. The Playwright sidecar runs on Node, even when Bun drives the build.');
 }
 
-function targetTriple() {
-  const override = process.env.DEVKIT_TARGET;
-  if (override) return override;
-
+function hostTriple() {
   const line = run('rustc', ['-vV'])
     .split('\n')
     .find((entry) => entry.startsWith('host:'));
   if (!line) throw new Error('Could not determine the Rust host triple; is rustc on PATH?');
   return line.replace('host:', '').trim();
+}
+
+function targetTriple() {
+  return process.env.DEVKIT_TARGET || hostTriple();
 }
 
 /** The version this project ships, as `.node-version` states it. */
@@ -69,25 +70,20 @@ function requiredVersion() {
   return readFileSync(path, 'utf8').trim().replace(/^v/, '');
 }
 
-function checkVersion(binary) {
+function checkVersion(binary, target) {
   const required = requiredVersion();
   if (!required) return;
 
-  let actual;
-  try {
-    actual = run(binary, ['--version']).trim().replace(/^v/, '');
-  } catch (error) {
-    // A Node built for another architecture cannot be run to ask what it is —
-    // which is exactly the case when staging one for a cross-build, and the
-    // only case where this is reached. The caller chose the binary knowingly;
-    // refusing to stage it because it will not run *here* would rule out
-    // building for anything but the machine doing the building.
-    if (error.code === 'EBADARCH' || error.code === 'ENOEXEC') {
-      console.log(`cannot ask ${binary} for its version from this machine; staging it as given`);
-      return;
-    }
-    throw error;
+  // A Node built for somewhere else cannot be run here to be asked what it is,
+  // and refusing to stage it for that reason would rule out building for
+  // anything but the machine doing the building. The version is then the
+  // caller's word — which is all it can be, and they had to name the file.
+  if (target !== hostTriple()) {
+    console.log(`staging a Node for ${target}, which this machine cannot run; taking ${required} on trust`);
+    return;
   }
+
+  const actual = run(binary, ['--version']).trim().replace(/^v/, '');
   if (actual === required) return;
 
   throw new Error(
@@ -98,8 +94,8 @@ function checkVersion(binary) {
 }
 
 const node = resolveNode();
-checkVersion(node);
 const target = targetTriple();
+checkVersion(node, target);
 const suffix = target.includes('windows') ? '.exe' : '';
 const destination = join(root, 'src-tauri/binaries', `devkit-node-${target}${suffix}`);
 
