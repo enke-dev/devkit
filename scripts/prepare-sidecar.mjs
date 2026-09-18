@@ -73,7 +73,21 @@ function checkVersion(binary) {
   const required = requiredVersion();
   if (!required) return;
 
-  const actual = run(binary, ['--version']).trim().replace(/^v/, '');
+  let actual;
+  try {
+    actual = run(binary, ['--version']).trim().replace(/^v/, '');
+  } catch (error) {
+    // A Node built for another architecture cannot be run to ask what it is —
+    // which is exactly the case when staging one for a cross-build, and the
+    // only case where this is reached. The caller chose the binary knowingly;
+    // refusing to stage it because it will not run *here* would rule out
+    // building for anything but the machine doing the building.
+    if (error.code === 'EBADARCH' || error.code === 'ENOEXEC') {
+      console.log(`cannot ask ${binary} for its version from this machine; staging it as given`);
+      return;
+    }
+    throw error;
+  }
   if (actual === required) return;
 
   throw new Error(

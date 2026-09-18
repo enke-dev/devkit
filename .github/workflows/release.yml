@@ -90,10 +90,14 @@ jobs:
             platform: macos-latest
             args: --target aarch64-apple-darwin
             rust-targets: aarch64-apple-darwin
+            node-arch: arm64
+          # Cross-compiled rather than built on an Intel runner: GitHub has
+          # retired the macos-13 image, so a job asking for one waits forever.
           - label: macos (intel)
-            platform: macos-13
+            platform: macos-latest
             args: --target x86_64-apple-darwin
             rust-targets: x86_64-apple-darwin
+            node-arch: x64
 
     steps:
       # The tag release-it just pushed, not the commit this run started from.
@@ -113,6 +117,16 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version-file: .node-version
+
+      # The sidecar *is* a Node binary, so it has to be the one for the
+      # architecture being built rather than the one this runner happens to be.
+      - name: Fetch the Node build for this target
+        run: |
+          version="$(cat .node-version)"
+          curl -fsSL "https://nodejs.org/dist/${version}/node-${version}-darwin-${{ matrix.node-arch }}.tar.gz" \
+            | tar -xz -C "${RUNNER_TEMP}"
+          echo "DEVKIT_NODE_BINARY=${RUNNER_TEMP}/node-${version}-darwin-${{ matrix.node-arch }}/bin/node" >> "$GITHUB_ENV"
+          echo "DEVKIT_TARGET=${{ matrix.rust-targets }}" >> "$GITHUB_ENV"
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
