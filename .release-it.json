@@ -1,6 +1,9 @@
 {
   "hooks": {
-    "after:bump": ["node scripts/sync-version.mjs", "git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"]
+    "after:bump": [
+      "node scripts/sync-version.ts",
+      "git add src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json"
+    ]
   },
   "npm": {
     "publish": false,

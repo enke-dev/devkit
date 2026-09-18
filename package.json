@@ -12,8 +12,8 @@
     "dev": "bun run build:libs && bun run bundle:sidecar && bun run prepare:sidecar && bun run tauri dev",
     "build": "tauri build",
     "build:libs": "bun run --filter @devkit/protocol build && bun run --filter @devkit/sidecar build",
-    "bundle:sidecar": "bun run scripts/bundle-sidecar.mjs",
-    "prepare:sidecar": "bun run scripts/prepare-sidecar.mjs",
+    "bundle:sidecar": "bun run scripts/bundle-sidecar.ts",
+    "prepare:sidecar": "bun run scripts/prepare-sidecar.ts",
     "dev:frontend": "bun run --filter @devkit/app dev",
     "build:frontend": "bun run --filter @devkit/app build",
     "generate": "bun run generate:icons",
@@ -25,7 +25,6 @@
     "check": "bun run --filter '*' check",
     "format": "bun --bun run --filter '*' format",
     "lint": "bun --bun run --filter '*' lint",
-    "test": "bun run --filter '!@optiscaners/pitstop.e2e' test",
     "verify:screencast": "bun run --filter @devkit/sidecar verify:screencast",
     "verify:settle": "bun run --filter @devkit/sidecar verify:settle",
     "verify:recovery": "bun run --filter @devkit/sidecar verify:recovery"
@@ -33,7 +32,9 @@
   "devDependencies": {
     "@awmottaz/prettier-plugin-void-html": "2.2.1",
     "@enke.dev/lint": "0.13.9",
+    "@schemastore/package": "1.0.5",
     "@tauri-apps/cli": "2.11.4",
+    "@types/node": "24.13.4",
     "eslint": "10.8.1",
     "jiti": "2.7.0",
     "prettier": "3.9.6",

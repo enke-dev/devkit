@@ -9,9 +9,6 @@
     "noUncheckedIndexedAccess": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
-    "outDir": "dist",
-    "rootDir": "./",
     "sourceMap": true
-  },
-  "include": ["src", "scripts"]
+  }
 }

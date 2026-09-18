@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * End-to-end test that every pane ends up sharp after you stop interacting.
  *
@@ -20,6 +21,7 @@
  */
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 import { createServer } from 'node:net';
 
 const HEADER_BYTES = 16;
@@ -45,7 +47,13 @@ const HEAVY_PAGE =
       '</ul>'
   );
 
-const frames = [];
+interface Frame {
+  at: number;
+  engine: string;
+  sharp: boolean;
+  width: number;
+}
+const frames: Frame[] = [];
 const token = randomBytes(TOKEN_BYTES / 2).toString('hex');
 
 /** Stand in for the Rust side of the frame channel. */
@@ -55,17 +63,23 @@ const server = createServer(socket => {
   socket.on('data', chunk => {
     buffer = Buffer.concat([buffer, chunk]);
     if (!authenticated) {
-      if (buffer.length < TOKEN_BYTES) return;
+      if (buffer.length < TOKEN_BYTES) {
+        return;
+      }
       buffer = buffer.subarray(TOKEN_BYTES);
       authenticated = true;
     }
     for (;;) {
-      if (buffer.length < HEADER_BYTES) return;
+      if (buffer.length < HEADER_BYTES) {
+        return;
+      }
       const length = buffer.readUInt32LE(0);
-      if (buffer.length < HEADER_BYTES + length) return;
+      if (buffer.length < HEADER_BYTES + length) {
+        return;
+      }
       frames.push({
         at: Date.now(),
-        engine: ENGINES[buffer.readUInt8(12)],
+        engine: ENGINES[buffer.readUInt8(12)] ?? 'unknown',
         sharp: buffer.readUInt8(13) === 1,
         width: buffer.readUInt16LE(8),
       });
@@ -74,21 +88,21 @@ const server = createServer(socket => {
   });
 });
 
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
 
 const sidecar = spawn('node', ['dist/index.js'], {
   env: {
     ...process.env,
-    DEVKIT_FRAME_PORT: String(server.address().port),
+    DEVKIT_FRAME_PORT: String((server.address() as AddressInfo).port),
     DEVKIT_FRAME_TOKEN: token,
   },
   stdio: ['pipe', 'pipe', 'inherit'],
 });
 
 let id = 0;
-const send = message =>
+const send = (message: Record<string, unknown>) =>
   sidecar.stdin.write(`${JSON.stringify({ id: String(++id), ...message })}\n`);
-const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 console.log('Launching three engines…');
 send({ type: 'start', engines: ENGINES, viewport: VIEWPORT });
@@ -115,7 +129,7 @@ console.log(`Waiting ${QUIET_MS}ms for the panes to settle…\n`);
 await wait(QUIET_MS);
 send({ type: 'shutdown' });
 
-const failures = [];
+const failures: string[] = [];
 ENGINES.forEach(engine => {
   const mine = frames.filter(frame => frame.engine === engine);
   const last = mine[mine.length - 1];

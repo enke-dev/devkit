@@ -17,8 +17,9 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const read = file => readFileSync(join(root, file), 'utf8');
-const write = (file, contents) => writeFileSync(join(root, file), contents);
+const read = (file: string): string => readFileSync(join(root, file), 'utf8');
+const write = (file: string, contents: string) =>
+  writeFileSync(join(root, file), contents);
 
 const { version, name } = JSON.parse(read('package.json'));
 if (!version) {
@@ -27,7 +28,10 @@ if (!version) {
 
 // The crate's own version.
 const cargo = read('src-tauri/Cargo.toml');
-const bumpedCargo = cargo.replace(/^version = "[^"]*"/m, `version = "${version}"`);
+const bumpedCargo = cargo.replace(
+  /^version = "[^"]*"/m,
+  `version = "${version}"`,
+);
 if (bumpedCargo === cargo && !cargo.includes(`version = "${version}"`)) {
   throw new Error('no version field found in src-tauri/Cargo.toml');
 }
@@ -38,7 +42,7 @@ write('src-tauri/Cargo.toml', bumpedCargo);
 const lock = read('src-tauri/Cargo.lock');
 write(
   'src-tauri/Cargo.lock',
-  lock.replace(/(\nname = "devkit"\nversion = )"[^"]*"/, `$1"${version}"`)
+  lock.replace(/(\nname = "devkit"\nversion = )"[^"]*"/, `$1"${version}"`),
 );
 
 // What the bundle announces, and what the updater compares against.
@@ -46,4 +50,6 @@ const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
 conf.version = version;
 write('src-tauri/tauri.conf.json', `${JSON.stringify(conf, null, 2)}\n`);
 
-console.log(`${name} ${version}: carried into Cargo.toml, Cargo.lock and tauri.conf.json`);
+console.log(
+  `${name} ${version}: carried into Cargo.toml, Cargo.lock and tauri.conf.json`,
+);

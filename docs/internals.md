@@ -357,11 +357,11 @@ cache, which is also where an existing Playwright install already has them.
 
 Two pieces need staging because Bun cannot provide them directly:
 
-- **`scripts/bundle-sidecar.mjs`** walks the sidecar's runtime dependency closure and writes a plain
+- **`scripts/bundle-sidecar.ts`** walks the sidecar's runtime dependency closure and writes a plain
   `node_modules` into `src-tauri/sidecar-bundle`. Bun builds `node_modules` from symlinks into a
   content-addressed store, and those do not survive being copied into an app bundle. The bundle
   directory ships as the `sidecar` resource.
-- **`scripts/prepare-sidecar.mjs`** stages a Node binary as the Tauri sidecar executable. Playwright
+- **`scripts/prepare-sidecar.ts`** stages a Node binary as the Tauri sidecar executable. Playwright
   needs a real Node environment, so the "sidecar binary" is the interpreter and the entry script
   rides along as a resource.
 

@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Behaviour test for the screencast each pane depends on.
  *
@@ -23,6 +24,7 @@
  */
 import { createRequire } from 'node:module';
 
+import type { Page } from 'playwright';
 import { chromium, firefox, webkit } from 'playwright';
 
 const require = createRequire(import.meta.url);
@@ -41,14 +43,14 @@ const MOVING_PAGE =
   );
 
 /** Read real dimensions from the JPEG SOF marker rather than trusting metadata. */
-function jpegSize(buffer) {
+function jpegSize(buffer: Buffer<ArrayBufferLike>) {
   let i = 2;
   while (i < buffer.length - 9) {
     if (buffer[i] !== 0xff) {
       i += 1;
       continue;
     }
-    const marker = buffer[i + 1];
+    const marker = buffer[i + 1] as number;
     const length = buffer.readUInt16BE(i + 2);
     if (marker >= 0xc0 && marker <= 0xcf && ![0xc4, 0xc8, 0xcc].includes(marker)) {
       return { width: buffer.readUInt16BE(i + 7), height: buffer.readUInt16BE(i + 5) };
@@ -61,8 +63,10 @@ function jpegSize(buffer) {
 const failures = [];
 const notes = [];
 
-function check(condition, message) {
-  if (!condition) failures.push(message);
+function check(condition: boolean, message: string): boolean {
+  if (!condition) {
+    failures.push(message);
+  }
   return condition;
 }
 
@@ -72,12 +76,17 @@ function check(condition, message) {
  * Nothing re-applies the viewport here on purpose: a check that repairs the
  * thing it is checking can only ever pass.
  */
-async function checkDeviceScaleSurvivesNavigation(engine, page) {
+async function checkDeviceScaleSurvivesNavigation(engine: string, page: Page): Promise<string> {
   await page.goto('data:text/html,<h1>one</h1>', { waitUntil: 'load' });
   await page.goto('data:text/html,<h1>two</h1>', { waitUntil: 'load' });
   await new Promise(resolve => setTimeout(resolve, 300));
 
-  const dpr = await page.evaluate(() => window.devicePixelRatio).catch(() => 0);
+  const dpr = await page
+    .evaluate<number>(() => {
+      // @ts-expect-error DOM types are not available in this context
+      return window.devicePixelRatio;
+    })
+    .catch(() => 0);
   if (dpr !== SCALE) {
     failures.push(`${engine}: devicePixelRatio is ${dpr} after navigating, expected ${SCALE}`);
     return `device scale: LOST (dpr=${dpr})`;
@@ -86,6 +95,7 @@ async function checkDeviceScaleSurvivesNavigation(engine, page) {
 }
 
 const playwrightVersion = require('playwright/package.json').version;
+
 console.log(`Verifying the screencast against Playwright ${playwrightVersion}\n`);
 
 for (const [engine, launcher] of Object.entries({ chromium, firefox, webkit })) {
@@ -99,7 +109,7 @@ for (const [engine, launcher] of Object.entries({ chromium, firefox, webkit })) 
     const page = await context.newPage();
     await page.goto(MOVING_PAGE, { waitUntil: 'load' });
 
-    const frames = [];
+    const frames: Buffer<ArrayBufferLike>[] = [];
     await page.screencast.start({
       size: { width: VIEWPORT.width, height: VIEWPORT.height },
       quality: 60,
@@ -116,14 +126,15 @@ for (const [engine, launcher] of Object.entries({ chromium, firefox, webkit })) 
         frames.length >= MIN_FRAMES,
         `${engine}: only ${frames.length} frames in ${FRAME_WINDOW_MS}ms`
       )
-    )
+    ) {
       continue;
+    }
 
     const [first] = frames;
     check(Buffer.isBuffer(first), `${engine}: frame data is not a Buffer`);
     check(first?.[0] === 0xff && first?.[1] === 0xd8, `${engine}: frame data is not a JPEG`);
 
-    const size = jpegSize(first);
+    const size = jpegSize(first as Buffer<ArrayBufferLike>);
     const actual = size ? `${size.width}x${size.height}` : 'unreadable';
     // Resolution is reported rather than enforced: the panes only have to match
     // each other, and what each engine delivers is what this is here to show.
@@ -133,7 +144,7 @@ for (const [engine, launcher] of Object.entries({ chromium, firefox, webkit })) 
       `${engine.padEnd(9)} ${fps.toFixed(1).padStart(5)} fps   frames ${actual} (requested ${VIEWPORT.width}x${VIEWPORT.height})   ${scale}`
     );
   } catch (error) {
-    failures.push(`${engine}: ${error.message}`);
+    failures.push(`${engine}: ${(error as Error).message}`);
   } finally {
     await browser.close();
   }

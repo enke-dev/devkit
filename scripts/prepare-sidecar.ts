@@ -22,20 +22,31 @@
  * without a word.
  */
 import { execFileSync } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  linkSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+} from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 
-function run(command, args) {
+function run(command: string, args: string[]): string {
   return execFileSync(command, args, { encoding: 'utf8' }).trim();
 }
 
-function resolveNode() {
+function resolveNode(): string {
   const override = process.env.DEVKIT_NODE_BINARY;
   if (override) {
-    if (!existsSync(override)) throw new Error(`DEVKIT_NODE_BINARY points at a missing file: ${override}`);
+    if (!existsSync(override))
+      throw new Error(
+        `DEVKIT_NODE_BINARY points at a missing file: ${override}`,
+      );
     return override;
   }
 
@@ -48,29 +59,34 @@ function resolveNode() {
   } catch {
     // fall through to the error below
   }
-  throw new Error('Node.js not found on PATH. The Playwright sidecar runs on Node, even when Bun drives the build.');
+  throw new Error(
+    'Node.js not found on PATH. The Playwright sidecar runs on Node, even when Bun drives the build.',
+  );
 }
 
-function hostTriple() {
+function hostTriple(): string {
   const line = run('rustc', ['-vV'])
     .split('\n')
     .find((entry) => entry.startsWith('host:'));
-  if (!line) throw new Error('Could not determine the Rust host triple; is rustc on PATH?');
+  if (!line)
+    throw new Error(
+      'Could not determine the Rust host triple; is rustc on PATH?',
+    );
   return line.replace('host:', '').trim();
 }
 
-function targetTriple() {
+function targetTriple(): string {
   return process.env.DEVKIT_TARGET || hostTriple();
 }
 
 /** The version this project ships, as `.node-version` states it. */
-function requiredVersion() {
+function requiredVersion(): string | null {
   const path = join(root, '.node-version');
   if (!existsSync(path)) return null;
   return readFileSync(path, 'utf8').trim().replace(/^v/, '');
 }
 
-function checkVersion(binary, target) {
+function checkVersion(binary: string, target: string) {
   const required = requiredVersion();
   if (!required) return;
 
@@ -79,7 +95,9 @@ function checkVersion(binary, target) {
   // anything but the machine doing the building. The version is then the
   // caller's word — which is all it can be, and they had to name the file.
   if (target !== hostTriple()) {
-    console.log(`staging a Node for ${target}, which this machine cannot run; taking ${required} on trust`);
+    console.log(
+      `staging a Node for ${target}, which this machine cannot run; taking ${required} on trust`,
+    );
     return;
   }
 
@@ -89,7 +107,7 @@ function checkVersion(binary, target) {
   throw new Error(
     `the sidecar would ship Node ${actual}, but .node-version asks for ${required}\n` +
       `  staged from: ${binary}\n` +
-      `  run the build through that version — \`fnm exec bun run build\`, or set DEVKIT_NODE_BINARY`
+      `  run the build through that version — \`fnm exec bun run build\`, or set DEVKIT_NODE_BINARY`,
   );
 }
 
@@ -97,7 +115,11 @@ const node = resolveNode();
 const target = targetTriple();
 checkVersion(node, target);
 const suffix = target.includes('windows') ? '.exe' : '';
-const destination = join(root, 'src-tauri/binaries', `devkit-node-${target}${suffix}`);
+const destination = join(
+  root,
+  'src-tauri/binaries',
+  `devkit-node-${target}${suffix}`,
+);
 
 mkdirSync(dirname(destination), { recursive: true });
 rmSync(destination, { force: true });

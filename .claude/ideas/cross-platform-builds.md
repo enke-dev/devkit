@@ -8,9 +8,9 @@ it is simply unverified.
 
 ## What is already in place
 
-- `prepare-sidecar.mjs` takes `DEVKIT_NODE_BINARY` and `DEVKIT_TARGET`, so the staged Node runtime
+- `prepare-sidecar.ts` takes `DEVKIT_NODE_BINARY` and `DEVKIT_TARGET`, so the staged Node runtime
   and its target-triple filename can both be supplied for another platform.
-- `bundle-sidecar.mjs` copies dependencies with Node's own `fs.cp` and path handling rather than
+- `bundle-sidecar.ts` copies dependencies with Node's own `fs.cp` and path handling rather than
   shelling out, so it should work on Windows unchanged.
 - The Rust sidecar lookup uses the bare binary name, which Tauri resolves per platform.
 

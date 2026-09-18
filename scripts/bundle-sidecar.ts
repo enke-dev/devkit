@@ -14,12 +14,13 @@ import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { JSONSchemaForNPMPackageJsonFiles as Manifest } from '@schemastore/package';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const sidecar = join(root, 'packages/sidecar');
 const bundle = join(root, 'src-tauri/sidecar-bundle');
 
-async function readManifest(path) {
+async function readManifest(path: string): Promise<Manifest> {
   return JSON.parse(await readFile(path, 'utf8'));
 }
 
@@ -29,7 +30,7 @@ async function readManifest(path) {
  * A package's entry point can sit any number of directories deep (`dist/index.js`
  * is typical), so the root is whichever ancestor carries the `package.json`.
  */
-async function manifestForEntry(entry) {
+async function manifestForEntry(entry: string): Promise<string | null> {
   let directory = dirname(entry);
   while (directory !== dirname(directory)) {
     const candidate = join(directory, 'package.json');
@@ -46,7 +47,10 @@ async function manifestForEntry(entry) {
  * so a nested version is found where one exists. Optional dependencies are
  * skipped when missing — they are optional precisely because the code copes.
  */
-async function resolveClosure(fromManifestPath, found = new Map()) {
+async function resolveClosure(
+  fromManifestPath: string,
+  found = new Map(),
+): Promise<Map<string, string | null>> {
   const manifest = await readManifest(fromManifestPath);
   const require = createRequire(fromManifestPath);
 
@@ -95,7 +99,7 @@ await Promise.all(
   [...closure]
     .filter(([, source]) => source !== null)
     .map(async ([name, source]) => {
-      await cp(source, join(bundle, 'node_modules', name), {
+      await cp(source as string, join(bundle, 'node_modules', name), {
         recursive: true,
         // `dereference` turns the store symlinks into real files.
         dereference: true,
@@ -104,7 +108,10 @@ await Promise.all(
         // in the whole toolchain. The test is relative to the package root —
         // store paths like `node_modules/.bun/playwright@1.63.0/node_modules/playwright`
         // contain the segment themselves.
-        filter: (from) => !relative(source, from).split(sep).includes('node_modules'),
+        filter: (from) =>
+          !relative(source as string, from)
+            .split(sep)
+            .includes('node_modules'),
       });
       console.log(`  + ${name}`);
     }),

@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * A pane that dies must say so, and must come back.
  *
@@ -10,26 +11,27 @@
  *
  *   bun run verify:recovery
  */
-import { spawn, execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
 import { createServer } from 'node:net';
 
 const ENGINES = ['chromium', 'firefox', 'webkit'];
 const server = createServer(socket => socket.resume());
-await new Promise(r => server.listen(0, '127.0.0.1', r));
+await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
 
 const child = spawn('node', ['dist/index.js'], {
   // The package root, not this script's directory: `dist/index.js` is there.
   cwd: new URL('..', import.meta.url).pathname,
   env: {
     ...process.env,
-    DEVKIT_FRAME_PORT: String(server.address().port),
+    DEVKIT_FRAME_PORT: String((server.address() as AddressInfo).port ?? 0),
     DEVKIT_FRAME_TOKEN: randomBytes(16).toString('hex'),
   },
   stdio: ['pipe', 'pipe', 'inherit'],
 });
 
-const events = [];
+const events: string[] = [];
 child.stdout.on('data', chunk =>
   String(chunk)
     .split('\n')
@@ -37,15 +39,19 @@ child.stdout.on('data', chunk =>
     .forEach(line => {
       try {
         const event = JSON.parse(line);
-        if (event.type === 'pane')
+        if (event.type === 'pane') {
           events.push(`${event.engine} ${event.status}${event.detail ? ` (${event.detail})` : ''}`);
-      } catch {}
+        }
+      } catch {
+        // yada yada
+      }
     })
 );
 
 let id = 0;
-const send = m => child.stdin.write(`${JSON.stringify({ id: String(++id), ...m })}\n`);
-const wait = ms => new Promise(r => setTimeout(r, ms));
+const send = (m: Record<string, unknown>) =>
+  child.stdin.write(`${JSON.stringify({ id: String(++id), ...m })}\n`);
+const wait = (ms: number): Promise<void> => new Promise(r => setTimeout(r, ms));
 
 send({ type: 'start', engines: ENGINES, viewport: { width: 600, height: 900, scale: 2 } });
 await wait(9000);
@@ -61,7 +67,9 @@ console.log(`  killing ${pids.length} firefox process(es)`);
 pids.forEach(pid => {
   try {
     process.kill(Number(pid), 'SIGKILL');
-  } catch {}
+  } catch {
+    // yada yada
+  }
 });
 
 await wait(6000);
@@ -75,9 +83,15 @@ await wait(9000);
 const closed = events.filter(event => event.startsWith('firefox closed'));
 const relaunched = events.some(event => event === 'firefox live');
 const failures = [];
-if (closed.length === 0) failures.push('the killed engine was never reported closed');
-if (closed.length > 1) failures.push(`reported closed ${closed.length} times, expected once`);
-if (!relaunched) failures.push('the pane did not come back after being restarted');
+if (closed.length === 0) {
+  failures.push('the killed engine was never reported closed');
+}
+if (closed.length > 1) {
+  failures.push(`reported closed ${closed.length} times, expected once`);
+}
+if (!relaunched) {
+  failures.push('the pane did not come back after being restarted');
+}
 
 send({ type: 'shutdown' });
 await wait(500);

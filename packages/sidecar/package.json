@@ -7,9 +7,9 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "check": "tsc -p tsconfig.json --noEmit",
-    "verify:screencast": "node scripts/verify-screencast.mjs",
-    "verify:settle": "node scripts/verify-settle.mjs",
-    "verify:recovery": "node scripts/verify-recovery.mjs",
+    "verify:screencast": "node scripts/verify-screencast.ts",
+    "verify:settle": "node scripts/verify-settle.ts",
+    "verify:recovery": "node scripts/verify-recovery.ts",
     "lint": "bun run --parallel lint:*",
     "lint:prettier": "bun --bun prettier --config prettier.config.ts --check .",
     "lint:eslint": "bun --bun eslint --config eslint.config.ts",
@@ -22,7 +22,7 @@
     "playwright": "1.63.0"
   },
   "devDependencies": {
-    "@types/node": "22.15.1",
+    "@types/node": "24.13.4",
     "typescript": "5.9.3"
   }
 }

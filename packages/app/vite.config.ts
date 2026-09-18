@@ -30,11 +30,11 @@ export default defineConfig({
     // `lit`'s own public surface, so the substitution is exact.
     alias: [
       {
-        find: /^.*[\\/]\.pnpm[\\/]@lit_reactive-element@[^\\/]+[\\/].*[\\/]decorators[\\/].*\.mjs$/,
+        find: /^.*[\\/]\.pnpm[\\/]@lit_reactive-element@[^\\/]+[\\/].*[\\/]decorators[\\/].*\.ts$/,
         replacement: litDecorators,
       },
       {
-        find: /^.*[\\/]\.pnpm[\\/](?:lit-html|lit-element|@lit_reactive-element)@[^\\/]+[\\/].*\.mjs$/,
+        find: /^.*[\\/]\.pnpm[\\/](?:lit-html|lit-element|@lit_reactive-element)@[^\\/]+[\\/].*\.ts$/,
         replacement: lit,
       },
     ],
