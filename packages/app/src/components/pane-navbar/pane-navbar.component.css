@@ -65,6 +65,8 @@ ph-sun {
   font-size: 13px;
 }
 
+/* Pushed right against the status, so "fps" sits in one spot however many
+   digits precede it; the number grows leftwards into free space. */
 .meter {
   margin-left: auto;
   color: var(--text-dim);

@@ -177,13 +177,20 @@ export function recordFrameTime(times: number[], now: number): number[] {
   return [...burst, now].filter(time => now - time < METER_WINDOW_MS);
 }
 
-/** The meter's reading, or empty below one frame a second where no rate is worth reporting. */
+/** What a running pane that is delivering no frames reads: the truth, not a placeholder. */
+export const IDLE_RATE = '0 fps';
+
+/**
+ * The meter's reading. A burst of one frame has no rate yet and reads as zero,
+ * the same as a pane that has stopped: the meter is always a number, so it
+ * never blinks in and out as the pane moves and settles.
+ */
 export function frameRateLabel(times: number[]): string {
   const now = times[times.length - 1];
   if (now === undefined) {
-    return '';
+    return IDLE_RATE;
   }
   const span = now - (times[0] ?? now);
   const fps = span > 0 ? ((times.length - 1) / span) * 1000 : 0;
-  return fps >= 1 ? `${fps.toFixed(0)} fps` : '';
+  return `${fps.toFixed(0)} fps`;
 }

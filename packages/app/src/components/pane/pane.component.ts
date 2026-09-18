@@ -19,6 +19,7 @@ import {
   frameRateLabel,
   frameUrl,
   hostColorScheme,
+  IDLE_RATE,
   isRunning,
   pointWithin,
   recordFrameTime,
@@ -212,6 +213,14 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
     // A frame arriving is itself proof the pane is running: a status event may
     // be missed, but this cannot be — the picture is here.
     this.setState(frame.sharp === true ? 'settled' : 'stream');
+    // A sharp capture is one still, not motion: the pane has stopped, and its
+    // rate is zero — said as a number rather than by blanking the meter, so the
+    // readout is always there and never blinks between streaming and settled.
+    if (frame.sharp === true) {
+      this.#frameTimes = [];
+      this.rate = IDLE_RATE;
+      return;
+    }
     this.#frameTimes = recordFrameTime(this.#frameTimes, performance.now());
     this.rate = frameRateLabel(this.#frameTimes);
   }
@@ -365,7 +374,7 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
         .engine=${this.engine}
         .version=${this.version}
         .dims=${this.dims}
-        .rate=${this.rate}
+        .rate=${isRunning(this.status) ? this.rate || IDLE_RATE : ''}
         .status=${this.status}
         .colorScheme=${this.scheme}
         ?active=${this.active}
