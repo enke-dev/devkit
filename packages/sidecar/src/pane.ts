@@ -1,13 +1,33 @@
-import type { ColorScheme, Engine, InputEvent, Viewport } from '@devkit/protocol';
+import type {
+  ColorScheme,
+  Engine,
+  EvaluatedValue,
+  InputEvent,
+  InspectedElement,
+  SourceLocation,
+  Viewport,
+} from '@devkit/protocol';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { chromium, firefox, webkit } from 'playwright';
 
+import { ConsoleRelay } from './console.js';
 import { emit, log } from './emit.js';
 import { sendFrame } from './frame-channel.js';
 import type { Screencast } from './screencast.js';
 import { startScreencast } from './screencast.js';
+import { WALKER_KEY, WALKER_SOURCE } from './walker.js';
 
 const launchers = { chromium, firefox, webkit } as const;
+
+/**
+ * Input kinds after which the selected element may have moved.
+ *
+ * Movement is nearly all scrolling, and the rest is a click that opened
+ * something or a keystroke that reflowed a field. Pointer movement is left out
+ * deliberately: it moves nothing, and asking three engines about it on every
+ * mouse move is the cost this whole arrangement exists to avoid.
+ */
+const MOVES_THE_PAGE: InputEvent['kind'][] = ['wheel', 'keydown', 'text', 'mouseup'];
 
 const JPEG_QUALITY = 60;
 
@@ -169,6 +189,34 @@ export class Pane {
   #context: BrowserContext | null = null;
   #page: Page | null = null;
   #screencast: Screencast | null = null;
+  /** This pane's console, folded and rate-limited; made with the pane's page. */
+  #console: ConsoleRelay | null = null;
+  /** Where the selection was last announced, so it is only said when it moves. */
+  #lastSelectionAt = '';
+
+  /**
+   * Whether this pane has an inspected element at all.
+   *
+   * Kept here rather than asked of the page, because asking costs the round
+   * trip this exists to avoid: scrolling anything, in a session where nobody
+   * has opened the inspector, was paying an evaluate per pane per wheel event
+   * to be told there was nothing to measure — with the input ack waiting
+   * behind all three. That is most sessions, and it made every pane lag.
+   */
+  #hasSelection = false;
+
+  /** Whether a measurement is already in the air, so a scroll cannot stack them. */
+  #measuring = false;
+
+  /**
+   * Whether the walker has already been put back once for this page.
+   *
+   * The repair is for a document that somehow missed the init script, which is
+   * rare and does not become less rare by being attempted again. Without this,
+   * a page that fails evaluations for some other reason — mid-navigation, most
+   * often — re-injects several kilobytes of source on every cursor sample.
+   */
+  #repairedWalker = false;
 
   #viewport: Viewport;
   /** What the page is told the user prefers; a context option, so kept for relaunches. */
@@ -324,6 +372,14 @@ export class Pane {
       // and a listener watching for new tabs would have closed the pane's own.
       this.#followPopups(this.#context, this.#page);
       this.#watchNavigation(this.#page);
+      // Made with the page and not before: a relaunch is a new page, and a
+      // relay left attached to the old one would report a console nobody can
+      // see while the new one stayed silent.
+      this.#lastSelectionAt = '';
+      this.#hasSelection = false;
+      this.#repairedWalker = false;
+      this.#console = new ConsoleRelay(this.engine);
+      this.#watchConsole(this.#page);
       await this.#startCapture();
       // The build number travels with the status: a pane is only comparable to
       // the others if you know which build drew it.
@@ -353,15 +409,27 @@ export class Pane {
     return [`--force-device-scale-factor=${this.#viewport.scale}`];
   }
 
-  #newContext(): Promise<BrowserContext> {
+  /**
+   * The context, with the introspection walker already in it.
+   *
+   * Injected here rather than passed with every call: the walker is a few
+   * kilobytes of source, an inspect happens on every pointer move the inspector
+   * is open for, and parsing it three times per movement is a cost paid for
+   * nothing. `addInitScript` runs it before any script of the page's own, in
+   * every frame, for every document the context ever loads — so a navigation
+   * does not have to be noticed and re-armed.
+   */
+  async #newContext(): Promise<BrowserContext> {
     if (!this.#browser) {
       throw new Error('browser not launched');
     }
-    return this.#browser.newContext({
+    const context = await this.#browser.newContext({
       viewport: { width: this.#viewport.width, height: this.#viewport.height },
       deviceScaleFactor: this.#viewport.scale,
       colorScheme: this.#colorScheme,
     });
+    await context.addInitScript(WALKER_SOURCE);
+    return context;
   }
 
   /**
@@ -464,6 +532,11 @@ export class Pane {
       if (frame !== page.mainFrame()) {
         return;
       }
+      // A new document means a new walker, no selection in it, and a fresh
+      // chance to repair one that never arrived.
+      this.#lastSelectionAt = '';
+      this.#hasSelection = false;
+      this.#repairedWalker = false;
       void report(true);
     });
     page.on('load', () => {
@@ -551,6 +624,18 @@ export class Pane {
    * press at the previous position.
    */
   async applyInput(event: InputEvent): Promise<void> {
+    await this.#applyInput(event);
+    // Deliberately not awaited. The ack for this input is what paces the next
+    // one, so anything waited for here is added to the latency of every scroll
+    // — and the measurement is an announcement, not part of applying the input.
+    // It is already sent after the input was applied, which is the ordering
+    // that matters.
+    if (MOVES_THE_PAGE.includes(event.kind)) {
+      void this.#volunteerSelection();
+    }
+  }
+
+  async #applyInput(event: InputEvent): Promise<void> {
     this.#note(
       event.kind === 'mousemove' || event.kind === 'wheel'
         ? event.kind
@@ -594,93 +679,193 @@ export class Pane {
   /**
    * What cursor the page would show at a point.
    *
-   * Asked of the engine rather than inferred, so `cursor: pointer` on a link —
-   * or a text caret, or a custom cursor — is whatever that engine decided,
-   * which is the interesting answer for a tool that compares engines.
+   * The answer comes from the injected walker, which shares its descent with
+   * the inspector — so this is right inside shadow roots and frames too, where
+   * asking the top document alone reported whatever the host or the iframe
+   * element resolved to.
+   *
+   * Never throws: this runs on every pointer move, and a pane that stopped
+   * answering about its cursor must not turn into a rejected input event.
    */
   async readCursor(x: number, y: number): Promise<string | null> {
     const page = this.#page;
     if (!page || page.isClosed()) {
       return null;
     }
-    return page
-      .evaluate(
-        // Typed loosely: this runs in the browser, while the sidecar is a Node
-        // program compiled without the DOM lib.
-        ([px, py]: number[]) => {
-          const x = px ?? 0;
-          const y = py ?? 0;
-          const view = globalThis as unknown as {
-            document?: {
-              elementFromPoint?: (x: number, y: number) => unknown;
-              createRange?: () => {
-                selectNodeContents: (node: unknown) => void;
-                getClientRects: () => ArrayLike<{
-                  left: number;
-                  right: number;
-                  top: number;
-                  bottom: number;
-                }>;
-              };
-            };
-            getComputedStyle?: (element: unknown) => { cursor?: string };
-          };
-          const doc = view.document;
-          const element = doc?.elementFromPoint?.(x, y) as
-            | {
-                closest?: (s: string) => unknown;
-                childNodes?: ArrayLike<{ nodeType?: number; nodeValue?: string }>;
-              }
-            | undefined;
-          if (!element || !view.getComputedStyle) {
-            return null;
-          }
+    return this.#withWalker<string | null>(
+      page,
+      `globalThis[${JSON.stringify(WALKER_KEY)}].cursorAt(${x}, ${y})`
+    ).catch(() => null);
+  }
 
-          const css = view.getComputedStyle(element).cursor || 'auto';
-          if (css !== 'auto') {
-            return css;
-          }
+  // -------------------------------------------------------------------------
+  // Introspection
+  // -------------------------------------------------------------------------
 
-          // WebKit reports `auto` even over links, where Chromium and Gecko say
-          // `pointer`, so what a link resolves to has to be worked out.
-          if (
-            element.closest?.(
-              'a[href], button, summary, [role="button"], [role="link"], input[type="submit"], input[type="button"]'
-            )
-          ) {
-            return 'pointer';
+  /**
+   * Relay this page's console.
+   *
+   * `text()` rather than `args()`: reading the arguments means an evaluation
+   * per handle per message, and the three engines disagree about what a handle
+   * to a DOM node or a cyclic object even serialises to — which turns a console
+   * into three different consoles for reasons that have nothing to do with the
+   * page. The printed line is what every engine agrees on.
+   */
+  #watchConsole(page: Page): void {
+    page.on('console', message => {
+      const where = message.location();
+      const location: SourceLocation | undefined = where?.url
+        ? {
+            url: where.url,
+            ...(where.lineNumber ? { line: where.lineNumber } : {}),
+            ...(where.columnNumber ? { column: where.columnNumber } : {}),
           }
+        : undefined;
+      this.#console?.message(message.type(), message.text(), location);
+    });
+    page.on('pageerror', error => this.#console?.error(error.message, error.stack));
+  }
 
-          // `auto` also covers ordinary content, where a browser shows an I-beam
-          // over text and an arrow beside it. Caret hit-testing is no good here:
-          // it snaps to the nearest text and so claims "text" across whole
-          // paragraphs of empty space. Measuring the glyph boxes themselves is
-          // what makes the cursor change back when leaving the words.
-          const nodes = element.childNodes ?? [];
-          const range = doc?.createRange?.();
-          const TEXT_NODE = 3;
-          for (let i = 0; range && i < nodes.length; i += 1) {
-            const node = nodes[i];
-            if (!node || node.nodeType !== TEXT_NODE || !node.nodeValue?.trim()) {
-              continue;
-            }
-            range.selectNodeContents(node);
-            // `getClientRects` is array-like rather than an array, and this runs
-            // in the page, so it is copied before being searched.
-            const rects = Array.from(range.getClientRects());
-            if (
-              rects.some(
-                rect => x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-              )
-            ) {
-              return 'text';
-            }
-          }
-          return 'default';
-        },
-        [x, y]
-      )
-      .catch(() => null);
+  /**
+   * What this engine finds at a point.
+   *
+   * The point is the identity — there is no selector and no node handle — so
+   * this takes the same viewport coordinates as input and hands back a
+   * description. What another engine found at the same point is another
+   * description, and comparing them is the whole feature.
+   */
+  async inspect(x: number, y: number): Promise<InspectedElement | null> {
+    const page = this.#page;
+    if (!page || page.isClosed()) {
+      throw new Error(`${this.engine} pane is not running`);
+    }
+    const element = await this.#withWalker<InspectedElement | null>(
+      page,
+      `globalThis[${JSON.stringify(WALKER_KEY)}].inspect(${x}, ${y})`
+    );
+    this.#hasSelection = element !== null;
+    return element;
+  }
+
+  /**
+   * Say where the selected element has got to, if it moved.
+   *
+   * Called straight after the input that could have moved it and inside the
+   * same command turn, so the measurement lands after the scroll and before the
+   * next frame is captured. That ordering is the whole point: a frontend that
+   * polls instead measures somewhere in the middle, and the highlight lags its
+   * element for as long as the gap.
+   *
+   * Never throws. This runs off the back of ordinary input, and a pane that
+   * cannot answer about its selection must not turn a scroll into a dropped
+   * input event.
+   */
+  async #volunteerSelection(): Promise<void> {
+    const page = this.#page;
+    // The cheap questions first, and both of them matter: a pane with nothing
+    // selected must cost nothing at all, and a scroll must not stack a
+    // measurement behind every wheel event it produces.
+    if (!this.#hasSelection || this.#measuring || !page || page.isClosed()) {
+      return;
+    }
+    this.#measuring = true;
+    const element = await this.#withWalker<InspectedElement | null | undefined>(
+      page,
+      `globalThis[${JSON.stringify(WALKER_KEY)}].remeasure()`
+    ).catch(() => undefined);
+    this.#measuring = false;
+
+    // The page disagrees about there being a selection — it navigated, most
+    // likely — so stop paying for the question until something is inspected
+    // again.
+    if (element === undefined) {
+      this.#hasSelection = false;
+      return;
+    }
+    if (element === null) {
+      this.#hasSelection = false;
+    }
+
+    // Said only when it changed, like the cursor. Scrolling a page whose
+    // selection is fixed, or typing into a field beside it, moves nothing.
+    const where = element === null ? 'gone' : JSON.stringify(element.box.border);
+    if (where === this.#lastSelectionAt) {
+      return;
+    }
+    this.#lastSelectionAt = where;
+    emit({ type: 'selection', engine: this.engine, element });
+  }
+
+  /**
+   * The element this pane last inspected, measured again where it now is.
+   *
+   * Null when nothing has been inspected yet, or when what was inspected has
+   * since left the document.
+   */
+  async remeasure(): Promise<InspectedElement | null> {
+    const page = this.#page;
+    if (!page || page.isClosed()) {
+      throw new Error(`${this.engine} pane is not running`);
+    }
+    const element = await this.#withWalker<InspectedElement | null>(
+      page,
+      `globalThis[${JSON.stringify(WALKER_KEY)}].remeasure()`
+    );
+    // An element that has gone takes the reason to keep asking with it.
+    this.#hasSelection = element !== null;
+    return element;
+  }
+
+  /**
+   * Run an expression in this page and describe what it produced.
+   *
+   * Awaited, so a promise answers with its value rather than with the fact that
+   * it is a promise. Described rather than returned, so a DOM node or a cyclic
+   * object comes back as text instead of failing the round trip in whichever
+   * way this particular engine fails it.
+   */
+  async evaluate(expression: string): Promise<EvaluatedValue> {
+    const page = this.#page;
+    if (!page || page.isClosed()) {
+      throw new Error(`${this.engine} pane is not running`);
+    }
+    const key = JSON.stringify(WALKER_KEY);
+    const source = `(async () => {
+      const api = globalThis[${key}];
+      try {
+        return api.describe(await (${expression}));
+      } catch (error) {
+        return api.fail(error);
+      }
+    })()`;
+    return this.#withWalker<EvaluatedValue>(page, source);
+  }
+
+  /**
+   * Evaluate against the injected walker, putting it back if it is not there.
+   *
+   * The init script covers every document the context loads, so the walker is
+   * normally already in place. What it does not cover is a page that was
+   * committed before the context finished being set up, and a navigation that
+   * lands between the call and its evaluation. Those are rare enough to repair
+   * rather than to guard against on every call: the retry re-injects and asks
+   * again, and a second failure is a real one and is allowed through.
+   */
+  async #withWalker<T>(page: Page, source: string): Promise<T> {
+    try {
+      return (await page.evaluate(source)) as T;
+    } catch (error) {
+      // Once per page. Evaluations fail for reasons that have nothing to do
+      // with the walker — a navigation landing mid-call, most often — and this
+      // runs on every cursor sample, so retrying the injection each time meant
+      // re-parsing several kilobytes of source throughout every page load.
+      if (this.#repairedWalker) {
+        throw error;
+      }
+      this.#repairedWalker = true;
+      await page.evaluate(WALKER_SOURCE).catch(() => {});
+      return (await page.evaluate(source)) as T;
+    }
   }
 
   /** Firefox rejects `mouse.wheel`, so scrolling falls back to the page itself. */
@@ -1168,6 +1353,10 @@ export class Pane {
   async close(): Promise<void> {
     // From here a disconnect is our own doing, and not worth reporting.
     this.#closing = true;
+    // Anything the relay was holding back belongs to the session that is
+    // ending, and is the last thing that page will ever say.
+    this.#console?.dispose();
+    this.#console = null;
     await this.#stopCapture();
     await this.#context?.close().catch(() => {});
     await this.#browser?.close().catch(() => {});

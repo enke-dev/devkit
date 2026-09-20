@@ -1,7 +1,14 @@
 import { createRequire } from 'node:module';
 import { createInterface } from 'node:readline';
 
-import type { ColorScheme, Engine, Event, Request, Viewport } from '@devkit/protocol';
+import type {
+  ColorScheme,
+  Engine,
+  Event,
+  InspectedElement,
+  Request,
+  Viewport,
+} from '@devkit/protocol';
 import { ENGINES } from '@devkit/protocol';
 
 import { install, probe } from './browsers.js';
@@ -32,6 +39,21 @@ function greeting(): Event {
 const panes = new Map<Engine, Pane>();
 let viewport: Viewport = { width: 1280, height: 800, scale: 1 };
 let colorScheme: ColorScheme = 'light';
+
+/**
+ * The panes a command is addressed to.
+ *
+ * `'all'` is the ordinary case for anything the panes do in lockstep; naming
+ * one engine is for the things that are worth doing to a single pane, and for
+ * an engine that is not running it is simply nobody.
+ */
+function targets(engine: Engine | 'all'): Pane[] {
+  if (engine === 'all') {
+    return [...panes.values()];
+  }
+  const pane = panes.get(engine);
+  return pane === undefined ? [] : [pane];
+}
 
 /** Run an action on every live pane, reporting per-engine failures without failing the batch. */
 async function forEachPane(action: (pane: Pane) => Promise<void>): Promise<void> {
@@ -130,6 +152,36 @@ async function start(
   );
 }
 
+/**
+ * Ask each addressed pane about an element and report what it said.
+ *
+ * Every pane answers for itself, and a pane that cannot answer says so in its
+ * own event rather than failing the question for the others: an engine that
+ * found nothing where two others found something is the finding, and it cannot
+ * be reported if one failure sinks the batch.
+ */
+async function answerInspect(
+  id: string,
+  engine: Engine | 'all',
+  ask: (pane: Pane) => Promise<InspectedElement | null>
+): Promise<void> {
+  await Promise.all(
+    targets(engine).map(async pane => {
+      try {
+        emit({ type: 'inspected', id, engine: pane.engine, element: await ask(pane) });
+      } catch (error) {
+        emit({
+          type: 'inspected',
+          id,
+          engine: pane.engine,
+          element: null,
+          error: describe(error),
+        });
+      }
+    })
+  );
+}
+
 async function handle(request: Request): Promise<void> {
   switch (request.type) {
     case 'probe':
@@ -189,15 +241,42 @@ async function handle(request: Request): Promise<void> {
 
       // A pane that is mid-navigation will reject input; that is expected and
       // must not fail the event for the other panes.
-      const targets = request.engine === 'all' ? [...panes.values()] : [panes.get(request.engine)];
       const results = await Promise.allSettled(
-        targets
-          .filter((pane): pane is Pane => pane !== undefined)
-          .map(pane => pane.applyInput(request.event))
+        targets(request.engine).map(pane => pane.applyInput(request.event))
       );
       results
         .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
         .forEach(result => log('debug', `input dropped: ${describe(result.reason)}`));
+      return;
+    }
+
+    case 'inspect':
+      await answerInspect(request.id, request.engine, pane => pane.inspect(request.x, request.y));
+      return;
+
+    case 'remeasure':
+      await answerInspect(request.id, request.engine, pane => pane.remeasure());
+      return;
+
+    case 'evaluate': {
+      await Promise.all(
+        targets(request.engine).map(async pane => {
+          try {
+            const result = await pane.evaluate(request.expression);
+            emit({ type: 'evaluated', id: request.id, engine: pane.engine, result });
+          } catch (error) {
+            // An expression that threw is answered by the page itself; this is
+            // the pane failing to be asked at all, which is still an answer the
+            // column has to show rather than a blank.
+            emit({
+              type: 'evaluated',
+              id: request.id,
+              engine: pane.engine,
+              result: { kind: 'error', message: describe(error) },
+            });
+          }
+        })
+      );
       return;
     }
 
