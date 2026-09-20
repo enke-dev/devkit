@@ -37,3 +37,16 @@ button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
   outline-offset: -2px;
 }
+
+/* A toggle that is on has to look unmistakably different from one that is off,
+   and it cannot be coloured from outside: the slotted glyph inherits from this
+   button, not from the host. Tinted as well as coloured, because colour alone
+   is not a state anyone notices while they are looking at the page instead. */
+:host([active]) button {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--accent);
+}
+
+:host([active]) button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}

@@ -5,6 +5,13 @@
   overflow: hidden;
 }
 
+/* The drawer takes a row of its own rather than floating over the panes: it is
+   read beside a rendering, not on top of one, and anything covering a pane
+   would be covering the thing being compared. */
+:host([inspecting]) {
+  grid-template-rows: var(--toolbar-height) 1fr minmax(160px, 38%);
+}
+
 /* Implicit tracks rather than a fixed three: the panes are however many engines
    are being compared, and only the direction they flow in is a choice. */
 .panes {

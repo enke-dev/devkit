@@ -139,3 +139,51 @@ svg.cursor[data-pressed='true'] .shape {
   fill: var(--accent);
   stroke: var(--accent);
 }
+
+/* Inspected element ---------------------------------------------------- */
+
+/* Drawn over the frame, never into the page: an overlay injected into the page
+   would appear in the captured frames themselves. */
+.highlight {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.highlight > div {
+  position: absolute;
+}
+
+/* The developer-tools convention, because it is the one people already read:
+   margin outside, then border, then padding, with the content box on top. */
+.margin {
+  background: color-mix(in srgb, #f5a623 34%, transparent);
+}
+
+.border {
+  background: color-mix(in srgb, #e8c547 42%, transparent);
+}
+
+.padding {
+  background: color-mix(in srgb, #7ed321 32%, transparent);
+}
+
+.content {
+  background: color-mix(in srgb, #4a90d9 38%, transparent);
+  outline: 1px solid color-mix(in srgb, #4a90d9 80%, transparent);
+}
+
+.tag {
+  position: absolute;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #1b1b1f;
+  color: #fff;
+  font:
+    10px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: nowrap;
+}

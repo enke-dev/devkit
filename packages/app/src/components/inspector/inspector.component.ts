@@ -1,0 +1,555 @@
+import '../icon-button/icon-button.component.js';
+import '@phosphor-icons/webcomponents/PhCrosshair';
+import '@phosphor-icons/webcomponents/PhTrash';
+import '@phosphor-icons/webcomponents/PhX';
+
+import type { Engine, InspectedElement, MatchedRule } from '@devkit/protocol';
+import { ENGINE_LABELS, ENGINES, INSPECTED_STYLE_GROUPS } from '@devkit/protocol';
+import { html, nothing } from 'lit';
+import { customElement, property, query, state } from 'lit/decorators.js';
+import { repeat } from 'lit/directives/repeat.js';
+
+import { ariaBoolean } from '../../utils/aria.utils.js';
+import { DevkitElement } from '../../utils/base.utils.js';
+import type { ConsoleEntry, Evaluation, InspectAnswer } from '../../utils/inspect.utils.js';
+import {
+  agreed,
+  atLeast,
+  breadcrumb,
+  CONSOLE_FLOORS,
+  describeRef,
+  differingProperties,
+  divergesAt,
+  identitySteps,
+  levelOf,
+  textOf,
+} from '../../utils/inspect.utils.js';
+import styles from './inspector.component.css';
+
+type Tab = 'elements' | 'console';
+type Floor = (typeof CONSOLE_FLOORS)[number];
+
+/**
+ * The introspection drawer: what is under the pointer, what the pages printed,
+ * and a line to ask them something.
+ *
+ * It compares rather than reports. A single engine's computed styles are
+ * something every browser already shows better than this ever will — what no
+ * browser can show is the same element in three engines at once, so the column
+ * layout and the marking of rows that disagree are the whole point of it.
+ *
+ * Nothing here talks to the sidecar. The drawer reports intent and is handed
+ * answers, the way every other component in the app is.
+ */
+@customElement('devkit-inspector')
+export class InspectorComponent extends DevkitElement.withStyles(styles) {
+  /** One answer per pane that was asked, in whatever order they arrived. */
+  @property({ attribute: false })
+  accessor answers: InspectAnswer[] = [];
+
+  @property({ attribute: false })
+  accessor messages: ConsoleEntry[] = [];
+
+  @property({ attribute: false })
+  accessor evaluations: Evaluation[] = [];
+
+  /** Whether the inspected element follows the pointer, or is being held still. */
+  @property({ type: Boolean, reflect: true })
+  accessor picking = false;
+
+  @property({ type: String, reflect: true })
+  accessor tab: Tab = 'elements';
+
+  /**
+   * Show only the rows the engines disagree about.
+   *
+   * Off by default, because an inspector that hides what agrees is useless for
+   * the ordinary question of "what is this element" — but the moment there is a
+   * difference to chase, everything else is in the way.
+   */
+  @state() private accessor onlyDifferences = false;
+
+  @state() private accessor floor: Floor = 'debug';
+  @state() private accessor muted: Engine[] = [];
+  @state() private accessor search = '';
+
+  @query('input.expression')
+  private accessor expressionField!: HTMLInputElement;
+
+  private emit(name: string, detail?: unknown): void {
+    this.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
+  }
+
+  /** The engines that answered, in the fixed order, so columns never reorder. */
+  private get columns(): InspectAnswer[] {
+    return ENGINES.map(engine => this.answers.find(answer => answer.engine === engine)).filter(
+      (answer): answer is InspectAnswer => answer !== undefined
+    );
+  }
+
+  override render() {
+    return html`
+      <header>
+        <nav class="tabs">
+          ${(
+            [
+              ['elements', 'Elements'],
+              ['console', 'Console'],
+            ] as [Tab, string][]
+          ).map(
+            ([tab, label]) => html`
+              <button
+                type="button"
+                class="tab"
+                aria-pressed=${ariaBoolean(this.tab === tab)}
+                @click=${() => this.emit('devkit-inspector-tab', tab)}
+              >
+                ${label}
+              </button>
+            `
+          )}
+        </nav>
+        <devkit-icon-button
+          ?active=${this.picking}
+          label=${this.picking ? 'Stop following the pointer' : 'Pick an element'}
+          @click=${() => this.emit('devkit-pick', !this.picking)}
+        >
+          <!-- The weight changes with the colour: picking is a mode, and a mode
+               you can be in without noticing is a mode that bites. -->
+          <ph-crosshair weight=${this.picking ? 'bold' : 'regular'}></ph-crosshair>
+        </devkit-icon-button>
+        <devkit-icon-button
+          label="Close the inspector"
+          @click=${() => this.emit('devkit-inspector-close')}
+        >
+          <ph-x></ph-x>
+        </devkit-icon-button>
+      </header>
+
+      ${this.tab === 'elements' ? this.renderElements() : this.renderConsole()}
+    `;
+  }
+
+  // -------------------------------------------------------------------------
+  // Elements
+  // -------------------------------------------------------------------------
+
+  private renderElements() {
+    const columns = this.columns;
+    if (columns.length === 0) {
+      return html`
+        <p class="hint">
+          ${
+            this.picking
+              ? 'Point at a pane to inspect what is under the pointer.'
+              : 'Pick an element to compare it across the engines.'
+          }
+        </p>
+      `;
+    }
+
+    const differing = differingProperties(columns);
+    return html`
+      <div class="body">
+        ${this.renderSubject(columns)}
+        <div class="controls">
+          <label>
+            <input
+              type="checkbox"
+              .checked=${this.onlyDifferences}
+              @change=${(event: globalThis.Event) => {
+                this.onlyDifferences = (event.target as HTMLInputElement).checked;
+              }}
+            >
+            Only differences${differing.size > 0 ? ` (${differing.size})` : ''}
+          </label>
+        </div>
+        ${this.renderStyles(columns, differing)} ${this.renderRules(columns)}
+      </div>
+    `;
+  }
+
+  /**
+   * What is being described, and whether the engines agree that it is one
+   * thing.
+   *
+   * Disagreement is not an error here — the panes share a viewport and a point,
+   * and two engines resolving different elements at the same point is a real
+   * difference in how they laid the page out. So it is stated and each engine's
+   * own answer is named, rather than one of them being picked to stand for all.
+   */
+  private renderSubject(columns: InspectAnswer[]) {
+    const elements = columns
+      .map(column => column.element)
+      .filter((element): element is InspectedElement => element !== null);
+    if (elements.length === 0) {
+      return html`<p class="hint">No engine found anything at that point.</p>`;
+    }
+
+    if (!agreed(columns)) {
+      // The whole trail, not just the leaf: the engines almost always agree
+      // about what they landed on and disagree about where it sits, so showing
+      // the leaf alone prints the same thing three times and calls it a
+      // difference.
+      const diverges = divergesAt(columns);
+      return html`
+        <div class="subject disputed">
+          <p class="warn">The engines resolved different elements at this point.</p>
+          <ul>
+            ${columns.map(column => {
+              const steps = column.element ? identitySteps(column.element) : [];
+              return html`
+                <li>
+                  <span class="engine">${ENGINE_LABELS[column.engine]}</span>
+                  ${
+                    column.element
+                      ? html`
+                          <ol class="chain">
+                            ${steps.map(
+                              (step, at) => html`
+                                <li data-diverges=${String(at === diverges)}>
+                                  <code>${step}</code>
+                                </li>
+                              `
+                            )}
+                          </ol>
+                        `
+                      : html`<code>${column.error ?? 'nothing'}</code>`
+                  }
+                </li>
+              `;
+            })}
+          </ul>
+        </div>
+      `;
+    }
+
+    const [element] = elements;
+    if (!element) {
+      return nothing;
+    }
+    return html`
+      <div class="subject">
+        <ol class="crumbs">
+          ${breadcrumb(element).map(
+            ref => html`
+              <li>
+                ${ref.boundary ? html`<span class="boundary">${ref.boundary}</span>` : nothing}
+                <code>${describeRef(ref)}</code>
+              </li>
+            `
+          )}
+        </ol>
+        ${element.documentUrl ? html`<p class="where">${element.documentUrl}</p>` : nothing}
+        ${element.pierceNote ? html`<p class="warn">${element.pierceNote}</p>` : nothing}
+        ${
+          element.attributes.length > 0
+            ? html`
+                <ul class="attributes">
+                  ${element.attributes.map(
+                    // Composed before it reaches the template: an attribute
+                    // name followed by `=` inside markup reads as a binding
+                    // position to the template parser, whatever it is nested in.
+                    ([name, value]) => html`<li><code>${`${name}="${value}"`}</code></li>`
+                  )}
+                </ul>
+              `
+            : nothing
+        }
+      </div>
+    `;
+  }
+
+  private renderStyles(columns: InspectAnswer[], differing: Set<string>) {
+    return html`
+      <table class="styles">
+        <thead>
+          <tr>
+            <th scope="col">Property</th>
+            ${columns.map(column => html`<th scope="col">${ENGINE_LABELS[column.engine]}</th>`)}
+          </tr>
+        </thead>
+        ${INSPECTED_STYLE_GROUPS.map(group => {
+          const rows = group.properties.filter(
+            property => !this.onlyDifferences || differing.has(property)
+          );
+          if (rows.length === 0) {
+            return nothing;
+          }
+          return html`
+            <tbody>
+              <tr class="group">
+                <th scope="rowgroup" colspan=${columns.length + 1}>${group.label}</th>
+              </tr>
+              ${rows.map(
+                property => html`
+                  <tr data-differs=${String(differing.has(property))}>
+                    <th scope="row">${property}</th>
+                    ${columns.map(
+                      column => html`
+                        <td>${column.element ? column.element.styles[property] : '—'}</td>
+                      `
+                    )}
+                  </tr>
+                `
+              )}
+            </tbody>
+          `;
+        })}
+      </table>
+    `;
+  }
+
+  /**
+   * Matched rules, per engine and collapsed.
+   *
+   * Never the primary panel: reading a stylesheet served from another origin
+   * throws, so on a great many real pages there is nothing here at all. That is
+   * why each engine says how much it could not see rather than presenting a
+   * short list as the whole truth.
+   */
+  private renderRules(columns: InspectAnswer[]) {
+    return html`
+      <div class="rules">
+        ${columns.map(column => {
+          const element = column.element;
+          if (!element) {
+            return nothing;
+          }
+          return html`
+            <details>
+              <summary>
+                ${ENGINE_LABELS[column.engine]} ·
+                ${
+                  element.rules === null
+                    ? 'no stylesheet could be read'
+                    : `${element.rules.length} matched rule${element.rules.length === 1 ? '' : 's'}`
+                }
+              </summary>
+              ${element.rulesNote ? html`<p class="warn">${element.rulesNote}</p>` : nothing}
+              ${(element.rules ?? []).map(rule => this.renderRule(rule))}
+            </details>
+          `;
+        })}
+      </div>
+    `;
+  }
+
+  private renderRule(rule: MatchedRule) {
+    return html`
+      <div class="rule">
+        <p class="selector">
+          ${rule.conditions.map(condition => html`<span class="condition">${condition}</span>`)}
+          <code>${rule.selector || 'element.style'}</code>
+          <span class="origin">${rule.origin}</span>
+        </p>
+        <ul>
+          ${rule.declarations.map(
+            ([property, value]) => html`<li><code>${property}: ${value};</code></li>`
+          )}
+        </ul>
+      </div>
+    `;
+  }
+
+  // -------------------------------------------------------------------------
+  // Console
+  // -------------------------------------------------------------------------
+
+  private get visibleMessages(): ConsoleEntry[] {
+    const needle = this.search.trim().toLowerCase();
+    return this.messages.filter(
+      entry =>
+        !this.muted.includes(entry.engine) &&
+        atLeast(entry, this.floor) &&
+        (needle === '' || textOf(entry).toLowerCase().includes(needle))
+    );
+  }
+
+  private toggleEngine(engine: Engine): void {
+    this.muted = this.muted.includes(engine)
+      ? this.muted.filter(muted => muted !== engine)
+      : [...this.muted, engine];
+  }
+
+  /**
+   * One stream rather than three.
+   *
+   * Every row says which engine printed it, which is what makes a line only one
+   * of them printed visible at a glance — three separate lists would put that
+   * same fact in the gaps between them, where it has to be looked for. The
+   * engine chips turn columns off for when the noise is coming from one of them.
+   */
+  private renderConsole() {
+    const visible = this.visibleMessages;
+    return html`
+      <div class="body console">
+        <div class="controls">
+          <select
+            aria-label="Least severe level to show"
+            .value=${this.floor}
+            @change=${(event: globalThis.Event) => {
+              this.floor = (event.target as HTMLSelectElement).value as Floor;
+            }}
+          >
+            ${CONSOLE_FLOORS.map(level => html`<option value=${level}>${level} and above</option>`)}
+          </select>
+          <div class="chips">
+            ${ENGINES.map(
+              engine => html`
+                <button
+                  type="button"
+                  class="chip"
+                  aria-pressed=${ariaBoolean(!this.muted.includes(engine))}
+                  @click=${() => this.toggleEngine(engine)}
+                >
+                  ${ENGINE_LABELS[engine]}
+                </button>
+              `
+            )}
+          </div>
+          <input
+            type="search"
+            placeholder="Filter"
+            .value=${this.search}
+            @input=${(event: globalThis.Event) => {
+              this.search = (event.target as HTMLInputElement).value;
+            }}
+          >
+          <span class="count">${visible.length}/${this.messages.length}</span>
+          <devkit-icon-button
+            label="Clear the console"
+            @click=${() => this.emit('devkit-console-clear')}
+          >
+            <ph-trash></ph-trash>
+          </devkit-icon-button>
+        </div>
+
+        <ol class="log">
+          ${repeat(
+            visible,
+            entry => `${entry.engine}:${entry.seq}`,
+            entry => this.renderEntry(entry)
+          )}
+        </ol>
+
+        ${this.renderEvaluations()} ${this.renderExpressionField()}
+      </div>
+    `;
+  }
+
+  private renderEntry(entry: ConsoleEntry) {
+    const level = levelOf(entry);
+    return html`
+      <li data-level=${level} data-engine=${entry.engine}>
+        <span class="engine">${ENGINE_LABELS[entry.engine]}</span>
+        ${
+          entry.type === 'console' && entry.kind !== 'message'
+            ? html`<span class="kind" title=${entry.nativeKind}>${entry.kind}</span>`
+            : nothing
+        }
+        <span class="text">${textOf(entry)}</span>
+        ${
+          entry.type === 'console' && entry.repeats
+            ? html`<span class="repeats">×${entry.repeats}</span>`
+            : nothing
+        }
+        ${
+          entry.dropped
+            ? html`<span class="dropped" title="Messages discarded to keep up">
+                +${entry.dropped} dropped
+              </span>`
+            : nothing
+        }
+        ${
+          entry.type === 'console' && entry.location
+            ? html`<span class="where"
+                >${entry.location.url}${entry.location.line ? `:${entry.location.line}` : ''}</span
+              >`
+            : nothing
+        }
+        ${
+          entry.type === 'page-error' && entry.stack
+            ? html`<pre class="stack">${entry.stack}</pre>`
+            : nothing
+        }
+      </li>
+    `;
+  }
+
+  private renderEvaluations() {
+    return html`
+      <ol class="evaluations">
+        ${repeat(
+          this.evaluations,
+          evaluation => evaluation.id,
+          evaluation => html`
+            <li>
+              <p class="expression"><code>${evaluation.expression}</code></p>
+              <ul>
+                ${evaluation.results.map(
+                  ({ engine, result }) => html`
+                    <li data-kind=${result.kind}>
+                      <span class="engine">${ENGINE_LABELS[engine]}</span>
+                      ${
+                        result.kind === 'value'
+                          ? html`<span class="type">${result.type}</span
+                              ><code>${result.preview}</code>`
+                          : html`<code class="failed">${result.message}</code>`
+                      }
+                    </li>
+                  `
+                )}
+              </ul>
+            </li>
+          `
+        )}
+      </ol>
+    `;
+  }
+
+  /**
+   * One expression, three answers.
+   *
+   * Sent to every pane at once for the same reason input is: what a single
+   * engine returns is something its own developer tools already say, and the
+   * question worth asking here is where the three differ.
+   */
+  private renderExpressionField() {
+    return html`
+      <form
+        class="ask"
+        @submit=${(event: SubmitEvent) => {
+          event.preventDefault();
+          const expression = this.expressionField.value.trim();
+          if (expression === '') {
+            return;
+          }
+          this.emit('devkit-evaluate', expression);
+          this.expressionField.value = '';
+        }}
+      >
+        <input
+          class="expression"
+          type="text"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="Evaluate in all three engines…"
+        >
+      </form>
+    `;
+  }
+}
+
+declare global {
+  interface HTMLElementTagNameMap {
+    'devkit-inspector': InspectorComponent;
+  }
+  interface HTMLElementEventMap {
+    'devkit-inspector-tab': CustomEvent<Tab>;
+    'devkit-inspector-close': CustomEvent<void>;
+    'devkit-console-clear': CustomEvent<void>;
+    'devkit-evaluate': CustomEvent<string>;
+    'devkit-pick': CustomEvent<boolean>;
+  }
+}

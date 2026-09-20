@@ -1,6 +1,6 @@
 import '../pane-navbar/pane-navbar.component.js';
 
-import type { ColorScheme, Engine, Event, PaneStatus, Viewport } from '@devkit/protocol';
+import type { BoxModel, ColorScheme, Engine, Event, PaneStatus, Viewport } from '@devkit/protocol';
 import { ENGINE_LABELS, FRAME_LATEST } from '@devkit/protocol';
 import { html, nothing, svg } from 'lit';
 import { customElement, property, query, state } from 'lit/decorators.js';
@@ -23,6 +23,7 @@ import {
   IDLE_RATE,
   pointWithin,
   recordFrameTime,
+  rectStyle,
   safeCursorCss,
   viewportSize,
 } from './pane.utils.js';
@@ -113,6 +114,20 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
 
   @state()
   private accessor cursor: { x: number; y: number; pressed: boolean } | null = null;
+
+  /**
+   * The element this engine resolved, drawn over the frame rather than into it.
+   *
+   * Never injected into the page: an overlay in the page would be captured in
+   * the very frames it is meant to annotate, and would make the rendering being
+   * compared a rendering of something else. The rects arrive already translated
+   * into this pane's viewport, so they are placed as they are.
+   */
+  @state()
+  private accessor highlight: BoxModel | null = null;
+
+  @state()
+  private accessor highlightLabel = '';
 
   /**
    * The shape the engine last reported, kept apart from the drawn cursor.
@@ -269,6 +284,12 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
     this.cursor = null;
   }
 
+  /** Draw the inspected element's boxes, or clear them when passed null. */
+  showHighlight(box: BoxModel | null, label = ''): void {
+    this.highlight = box;
+    this.highlightLabel = label;
+  }
+
   setCursorPressed(pressed: boolean): void {
     if (this.cursor) {
       this.cursor = { ...this.cursor, pressed };
@@ -401,7 +422,42 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
         <img alt="${label} rendering" decoding="async">
         ${this.status === 'missing' ? this.renderInstall(label) : nothing}
         ${this.detail ? html`<p class="detail">${this.detail}</p>` : nothing}
+        ${this.highlight ? this.renderHighlight(this.highlight) : nothing}
         ${this.cursor ? this.renderCursor(this.cursor) : nothing}
+      </div>
+    `;
+  }
+
+  /**
+   * The four boxes, in the order they nest, so the outer ones are still visible
+   * where the inner ones do not cover them.
+   *
+   * The label sits above the border box where there is room and inside it where
+   * there is not — an element at the very top of the page would otherwise have
+   * its name clipped off by the pane.
+   */
+  private renderHighlight(box: BoxModel) {
+    const above = box.border.y >= 18;
+    return html`
+      <div class="highlight" aria-hidden="true">
+        <div class="margin" style=${styleMap(rectStyle(box.margin))}></div>
+        <div class="border" style=${styleMap(rectStyle(box.border))}></div>
+        <div class="padding" style=${styleMap(rectStyle(box.padding))}></div>
+        <div class="content" style=${styleMap(rectStyle(box.content))}></div>
+        ${
+          this.highlightLabel
+            ? html`
+                <span
+                  class="tag"
+                  style=${styleMap({
+                    left: `${box.border.x}px`,
+                    top: `${above ? box.border.y - 18 : box.border.y}px`,
+                  })}
+                  >${this.highlightLabel}</span
+                >
+              `
+            : nothing
+        }
       </div>
     `;
   }

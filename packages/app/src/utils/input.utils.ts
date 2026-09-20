@@ -17,6 +17,16 @@ export interface InputHandlers {
   enter: (source: Engine) => void;
   /** The pointer left this pane, so any stand-in cursors should go. */
   leave: (source: Engine) => void;
+  /**
+   * Whether the app took this event for itself, in which case the engines
+   * never see it.
+   *
+   * There is exactly one thing this is for: clicking while the element picker
+   * is on picks the element, and must not also click the page. A click that
+   * both selects and follows a link would take the page out from under the
+   * thing it just selected.
+   */
+  intercept?: (event: InputEvent, source: Engine) => boolean;
 }
 
 const BUTTONS = ['left', 'middle', 'right'] as const;
@@ -44,6 +54,9 @@ export function attachInput(view: PaneComponent, handlers: InputHandlers): void 
   const surface = view.surface;
 
   const emit = (event: InputEvent) => {
+    if (handlers.intercept?.(event, view.engine) === true) {
+      return;
+    }
     handlers.preview(event, view.engine);
     void handlers.forward(event, view.engine);
   };

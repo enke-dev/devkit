@@ -59,6 +59,16 @@ export const SHORTCUTS = {
     ],
     describes: 'Reload every pane',
   },
+  inspector: {
+    // What every browser binds it to, and the one shortcut people try without
+    // looking. F12 as well, because Windows fingers reach for it first.
+    bindings: [{ key: 'i', primary: true, shift: true }, { key: 'f12' }],
+    describes: 'Show or hide the inspector',
+  },
+  pick: {
+    bindings: [{ key: 'c', primary: true, shift: true }],
+    describes: 'Inspect what is under the pointer',
+  },
   back: {
     bindings: [
       { key: 'arrowleft', primary: true, only: 'apple' },

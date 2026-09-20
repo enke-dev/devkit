@@ -19,7 +19,8 @@ devkit-address-bar {
 }
 
 ph-square-split-horizontal,
-ph-square-split-vertical {
+ph-square-split-vertical,
+ph-bug {
   font-size: 20px;
 }
 

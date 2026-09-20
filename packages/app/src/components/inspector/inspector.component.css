@@ -1,0 +1,489 @@
+:host {
+  display: grid;
+  grid-template-rows: 30px 1fr;
+  min-height: 0;
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: 12px;
+}
+
+header {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+}
+
+.tab {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tab[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.hint {
+  margin: 0;
+  padding: 14px 10px;
+  color: var(--text-dim);
+}
+
+/* Subject ---------------------------------------------------------------- */
+
+.subject {
+  margin-bottom: 8px;
+}
+
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crumbs li::after {
+  margin-left: 4px;
+  color: var(--text-muted);
+  content: '›';
+}
+
+.crumbs li:last-child::after {
+  content: '';
+}
+
+.crumbs li:last-child code {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* A step that left a shadow root or a frame is where the tree stops being one
+   tree, which is worth seeing in the trail rather than inferring from it. */
+.boundary {
+  padding: 0 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.where {
+  margin: 4px 0 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.warn {
+  margin: 4px 0 0;
+  color: var(--pending);
+}
+
+.disputed .warn {
+  color: var(--danger);
+}
+
+.disputed > ul {
+  display: grid;
+  gap: 4px;
+}
+
+.disputed > ul > li {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 6px;
+  align-items: baseline;
+}
+
+/* The trail, so the claim can be checked rather than taken on trust. */
+.chain {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.chain li::after {
+  margin-left: 3px;
+  color: var(--text-muted);
+  content: '/';
+}
+
+.chain li:last-child::after {
+  content: '';
+}
+
+/* The one step that is actually different, which is the whole answer. */
+.chain li[data-diverges='true'] code {
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--danger) 22%, transparent);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.attributes,
+.disputed ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+code {
+  font:
+    11px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+.engine {
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Controls --------------------------------------------------------------- */
+
+.controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 0 4px;
+  color: var(--text-dim);
+}
+
+.controls label {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  cursor: pointer;
+}
+
+.controls select,
+.controls input[type='search'] {
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+}
+
+.controls input[type='search'] {
+  flex: 1;
+  min-width: 60px;
+}
+
+.chips {
+  display: flex;
+  gap: 3px;
+}
+
+.chip {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Styles table ----------------------------------------------------------- */
+
+table.styles {
+  width: 100%;
+  border-collapse: collapse;
+  font:
+    11px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+table.styles th,
+table.styles td {
+  padding: 2px 6px;
+  overflow: hidden;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-raised);
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+tr.group th {
+  padding-top: 10px;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+tbody th[scope='row'] {
+  width: 30%;
+  color: var(--text-dim);
+  font-weight: 400;
+}
+
+/* The only rows anyone came for: three engines that did not agree. */
+tr[data-differs='true'] {
+  background: color-mix(in srgb, var(--pending) 14%, transparent);
+}
+
+tr[data-differs='true'] th[scope='row'] {
+  color: var(--text);
+}
+
+/* Matched rules ---------------------------------------------------------- */
+
+.rules {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+
+summary {
+  padding: 3px 0;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.rule {
+  margin: 6px 0 6px 14px;
+  padding-left: 8px;
+  border-left: 2px solid var(--border);
+}
+
+.selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  margin: 0;
+}
+
+.condition {
+  color: var(--accent);
+  font-size: 10px;
+}
+
+.origin {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rule ul {
+  margin: 2px 0 0;
+  padding: 0 0 0 12px;
+  list-style: none;
+  color: var(--text-dim);
+}
+
+/* Console ---------------------------------------------------------------- */
+
+.console {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: 0;
+  padding-bottom: 0;
+  overflow: hidden;
+}
+
+.log {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+}
+
+.log li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  font:
+    11px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+.log li[data-level='warn'] {
+  background: color-mix(in srgb, var(--pending) 12%, transparent);
+}
+
+.log li[data-level='error'] {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.log .text {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.log li[data-level='debug'] .text {
+  color: var(--text-dim);
+}
+
+/* The engine's own word for a message shape the shared vocabulary has a name
+   for; the native one is in the tooltip. */
+.kind {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+.repeats {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  color: var(--text-dim);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Said rather than hidden: a console that quietly drops messages is worse than
+   a slow one. */
+.dropped {
+  color: var(--danger);
+  font-size: 10px;
+}
+
+.stack {
+  flex-basis: 100%;
+  margin: 2px 0 0;
+  overflow: auto;
+  color: var(--text-dim);
+  font-size: 10px;
+}
+
+/* Evaluation ------------------------------------------------------------- */
+
+.evaluations {
+  max-height: 180px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  border-top: 1px solid var(--border);
+  list-style: none;
+}
+
+.evaluations > li {
+  padding: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.expression {
+  margin: 0;
+  color: var(--text-dim);
+}
+
+.expression::before {
+  color: var(--accent);
+  content: '› ';
+}
+
+.evaluations ul {
+  display: grid;
+  gap: 2px;
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.evaluations ul li {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.type {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+.failed {
+  color: var(--danger);
+}
+
+.ask {
+  display: flex;
+  border-top: 1px solid var(--border);
+}
+
+input.expression {
+  width: 100%;
+  padding: 3px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font:
+    11px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+input.expression:focus {
+  outline: none;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}

@@ -21,9 +21,18 @@ const pending = new Map<string, { resolve: () => void; reject: (error: Error) =>
 /** How long the last second's commands took to reach the backend. */
 const handovers: number[] = [];
 
-export function send(command: Command): Promise<void> {
+/**
+ * Send, and say which id the answers will carry.
+ *
+ * Most commands are answered only by their `ack`, which `send` already waits
+ * on. `inspect` and `evaluate` are answered by an event per pane as well, and
+ * those events name the command rather than the pane — so a caller that asked
+ * three questions in a row has to know which of them a given answer belongs to,
+ * and the id is the only thing that says.
+ */
+export function sendTracked(command: Command): { id: string; done: Promise<void> } {
   const id = `c${nextId++}`;
-  return new Promise((resolve, reject) => {
+  const done = new Promise<void>((resolve, reject) => {
     pending.set(id, { resolve, reject });
     const startedAt = performance.now();
     invoke('sidecar_send', { request: { ...command, id } })
@@ -33,6 +42,11 @@ export function send(command: Command): Promise<void> {
         reject(error instanceof Error ? error : new Error(String(error)));
       });
   });
+  return { id, done };
+}
+
+export function send(command: Command): Promise<void> {
+  return sendTracked(command).done;
 }
 
 /**

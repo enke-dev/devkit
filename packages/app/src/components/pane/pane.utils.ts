@@ -1,4 +1,4 @@
-import type { ColorScheme, Engine, Viewport } from '@devkit/protocol';
+import type { ColorScheme, Engine, Rect, Viewport } from '@devkit/protocol';
 import { FRAME_SCHEME } from '@devkit/protocol';
 
 /**
@@ -184,4 +184,20 @@ export function frameRateLabel(times: number[]): string {
   const span = now - (times[0] ?? now);
   const fps = span > 0 ? ((times.length - 1) / span) * 1000 : 0;
   return `${fps.toFixed(0)} fps`;
+}
+
+/**
+ * A rect from the inspector as absolute placement over the frame.
+ *
+ * The rects arrive in top-level viewport pixels and the frame is rendered at
+ * exactly that size, one image pixel per viewport pixel — so they need no
+ * scaling, only to be spoken as CSS.
+ */
+export function rectStyle(rect: Rect): Record<string, string> {
+  return {
+    left: `${rect.x}px`,
+    top: `${rect.y}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+  };
 }

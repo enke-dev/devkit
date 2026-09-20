@@ -1,8 +1,10 @@
 import '../app-navbar/app-navbar.component.js';
+import '../inspector/inspector.component.js';
 import '../pane/pane.component.js';
 
 import type {
   ColorScheme,
+  Command,
   Engine,
   Event,
   InputEvent,
@@ -14,14 +16,16 @@ import { listenWindow } from '@enke.dev/lit-utils/lib/utils/event.utils.js';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { html, nothing } from 'lit';
-import { customElement, queryAll, state } from 'lit/decorators.js';
+import { customElement, property, queryAll, state } from 'lit/decorators.js';
 import { when } from 'lit/directives/when.js';
 
 import { DevkitElement } from '../../utils/base.utils.js';
-import { connect, restart, send } from '../../utils/bridge.utils.js';
+import { connect, restart, send, sendTracked } from '../../utils/bridge.utils.js';
 import { preloadCursors } from '../../utils/cursors.utils.js';
 import * as history from '../../utils/history.utils.js';
 import { attachInput } from '../../utils/input.utils.js';
+import type { ConsoleEntry, Evaluation, InspectAnswer } from '../../utils/inspect.utils.js';
+import { appendConsole, describeRef, readoutSignature } from '../../utils/inspect.utils.js';
 import type { SplitDirection } from '../../utils/layout.utils.js';
 import { storedSplit, storeSplit } from '../../utils/layout.utils.js';
 import * as session from '../../utils/session.utils.js';
@@ -43,6 +47,41 @@ import {
 } from './app.utils.js';
 
 /**
+ * How often the panes are asked what is under the pointer.
+ *
+ * Three round trips per sample, each of them behind the same command queue as
+ * the input being mirrored, so this strikes the bargain `readCursor` already
+ * strikes in the sidecar: throttle, and always take a trailing sample. The
+ * pointer stops on the thing you want to know about, and without the trailing
+ * one that final position is the one that never gets asked.
+ */
+const INSPECT_SAMPLE_MS = 90;
+
+/**
+ * How long a readout waits for the panes that have not answered yet.
+ *
+ * Answers arrive one engine at a time, and publishing each as it lands redrew
+ * the table with one column, then two, then three — visible as flicker under a
+ * pointer that had not moved. So a sample is held until every pane it was sent
+ * to has answered, and this is the cap on that for a pane which never will.
+ */
+const ANSWER_GRACE_MS = 300;
+
+/**
+ * How long after the last input the selection is measured again.
+ *
+ * A backstop, not the mechanism: the panes volunteer a `selection` event the
+ * moment they move something, which is what keeps the highlight with its
+ * element while scrolling. This catches the movement that arrives afterwards
+ * without any further input — a smooth scroll still settling, a layout that
+ * reflowed late.
+ */
+const SETTLE_REMEASURE_MS = 250;
+
+/** How many past evaluations are kept; older ones scroll out of reach anyway. */
+const EVALUATION_LIMIT = 50;
+
+/**
  * The app: one URL, three engines, and everything that has to agree between
  * them — the viewport they share, the input they all replay, the pane the
  * pointer is in.
@@ -53,6 +92,31 @@ import {
 @customElement('devkit-app')
 export class AppComponent extends DevkitElement.withStyles(styles) {
   @state() private accessor problem = '';
+
+  /**
+   * Whether the introspection drawer is open.
+   *
+   * A property rather than internal state because the host attribute is what
+   * gives the drawer its row in the grid — closed, it takes no space at all
+   * rather than collapsing to nothing.
+   */
+  @property({ type: Boolean, reflect: true })
+  accessor inspecting = false;
+
+  @state() private accessor inspectorTab: 'elements' | 'console' = 'elements';
+
+  /**
+   * Whether the inspected element follows the pointer.
+   *
+   * Separate from the drawer being open, because reading three columns means
+   * moving the pointer off the panes — and an inspector that changed what it
+   * was describing on the way to being read would be unusable.
+   */
+  @state() private accessor picking = false;
+
+  @state() private accessor answers: InspectAnswer[] = [];
+  @state() private accessor messages: ConsoleEntry[] = [];
+  @state() private accessor evaluations: Evaluation[] = [];
 
   /** A newer DevKit, once one has been found; nothing is said until then. */
   @state() private accessor pendingUpdate: AvailableUpdate | null = null;
@@ -118,6 +182,35 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * session, with nothing to see but a pane that ignores the mouse.
    */
   #attached = new WeakSet<PaneComponent>();
+
+  /**
+   * The inspect question currently outstanding, and the one the answers on
+   * screen belong to.
+   *
+   * Answers name the command rather than the pane, and a sample the pointer has
+   * already moved past is still in flight when the next one goes out — so
+   * anything that does not name the latest question is dropped rather than
+   * allowed to overwrite it.
+   */
+  #inspectId: string | null = null;
+  #inspectAt = 0;
+  #inspectTrailing: number | undefined;
+
+  /** Answers to the outstanding question, held until they are all in. */
+  #pendingAnswers = new Map<Engine, InspectAnswer>();
+  #expected = 0;
+  #publishTimer: number | undefined;
+
+  /** The backstop measurement, taken once the input has stopped. */
+  #remeasureTrailing: number | undefined;
+
+  /**
+   * Whether the release of an intercepted press still has to be swallowed.
+   *
+   * A press taken for the picker must take its release with it: sending one
+   * without the other leaves three engines believing a button is still held.
+   */
+  #swallowUp = false;
 
   private get panes(): PaneComponent[] {
     return [...this.paneElements];
@@ -206,6 +299,8 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       return;
     }
     this.url = url;
+    // Whatever was being inspected belongs to the page being left.
+    this.clearInspection();
     // Recorded on the way out as well as when a pane reports arriving: a URL
     // that fails to load is still one you visited and will probably try again.
     history.record(url, '');
@@ -273,9 +368,27 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         event.preventDefault();
         this.goForward();
         return;
+      case 'inspector':
+        event.preventDefault();
+        this.setInspecting(!this.inspecting);
+        return;
+      case 'pick':
+        event.preventDefault();
+        this.inspecting = true;
+        this.setPicking(true);
+        return;
       default:
         break;
     }
+
+    // The way out of a mode, wherever the pointer happens to be. Only claimed
+    // while picking, so a page that uses Escape keeps it the rest of the time.
+    if (event.key === 'Escape' && this.picking) {
+      event.preventDefault();
+      this.setPicking(false);
+      return;
+    }
+
     this.forwardKey(event, 'keydown');
   }
 
@@ -318,6 +431,9 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       return;
     }
     event.preventDefault();
+    // A key can scroll the page as surely as the wheel can — space, the arrows,
+    // page up and down — and no-ops when nothing is selected.
+    this.scheduleRemeasure();
     void send({ type: 'input', engine: this.target(), event: { kind, key: event.key } }).catch(
       error => this.reportError(error)
     );
@@ -361,6 +477,12 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * point of the tool is watching three engines react to the same thing.
    */
   private forwardInput(event: InputEvent, source: Engine): Promise<void> {
+    // Scrolling moves the selected element; the highlight has to follow it.
+    // Taken here rather than in the preview because wheel events never reach
+    // the preview — they are paced straight through.
+    if (event.kind === 'wheel') {
+      this.scheduleRemeasure();
+    }
     // Always resolves: a rejection here would stall the pacing loop that awaits it.
     return send({ type: 'input', engine: this.#solo ? source : 'all', event, source }).catch(
       error => this.reportError(error)
@@ -373,6 +495,13 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * double it up.
    */
   private paintCursors(event: InputEvent, source: Engine): void {
+    // Sampled from the local preview rather than from the send: this runs for
+    // every movement the webview sees, which is the only place the pointer's
+    // real path is known before pacing thins it out.
+    if (this.inspecting && this.picking && event.kind === 'mousemove') {
+      this.sampleInspect(event.x, event.y);
+    }
+
     if ('x' in event) {
       // Remembered so the stand-ins can be put back the moment Alt is released,
       // rather than waiting for the next time the pointer moves.
@@ -469,6 +598,187 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         pane.showCursor(pointer.x, pointer.y);
       }
     });
+  }
+
+  // -------------------------------------------------------------------------
+  // Introspection
+  // -------------------------------------------------------------------------
+
+  private setInspecting(open: boolean): void {
+    this.inspecting = open;
+    // Closing the drawer must stop the sampling behind it, or three engines go
+    // on being asked about every pointer movement for a panel nobody can see.
+    this.setPicking(open && this.picking);
+    if (!open) {
+      this.clearInspection();
+    }
+  }
+
+  private setPicking(picking: boolean): void {
+    if (picking === this.picking) {
+      return;
+    }
+    this.picking = picking;
+    if (!picking) {
+      window.clearTimeout(this.#inspectTrailing);
+    }
+  }
+
+  private clearInspection(): void {
+    window.clearTimeout(this.#publishTimer);
+    window.clearTimeout(this.#remeasureTrailing);
+    this.#pendingAnswers = new Map();
+    this.#inspectId = null;
+    this.answers = [];
+    this.panes.forEach(pane => pane.showHighlight(null));
+  }
+
+  private sampleInspect(x: number, y: number): void {
+    window.clearTimeout(this.#inspectTrailing);
+    const elapsed = performance.now() - this.#inspectAt;
+    if (elapsed >= INSPECT_SAMPLE_MS) {
+      this.askInspect(x, y);
+      return;
+    }
+    this.#inspectTrailing = window.setTimeout(
+      () => this.askInspect(x, y),
+      INSPECT_SAMPLE_MS - elapsed
+    );
+  }
+
+  private askInspect(x: number, y: number): void {
+    this.#inspectAt = performance.now();
+    this.ask({ type: 'inspect', engine: 'all', x, y });
+  }
+
+  /** Put the question to every pane and start waiting for a whole readout. */
+  private ask(command: Extract<Command, { type: 'inspect' | 'remeasure' }>): void {
+    const { id, done } = sendTracked(command);
+    this.#inspectId = id;
+    this.#pendingAnswers = new Map();
+    // Only the panes that are actually running will answer; a pane that died
+    // between the question and the answer is covered by the grace period.
+    this.#expected = Math.max(1, this.#running.size);
+    window.clearTimeout(this.#publishTimer);
+    this.#publishTimer = window.setTimeout(() => this.publishAnswers(), ANSWER_GRACE_MS);
+    void done.catch((error: unknown) => this.reportError(error));
+  }
+
+  /**
+   * Take the selection's measurements again once the input has stopped.
+   *
+   * Only a backstop. Tracking a scroll is the panes' own job — they volunteer a
+   * `selection` event between moving the page and capturing the frame that
+   * shows it moved, which is the one moment a rectangle and a picture agree.
+   * Polling from here could only ever measure somewhere in the middle of that.
+   *
+   * What it still covers is movement that follows the input rather than
+   * accompanying it: a smooth scroll coasting to a stop, a layout settling a
+   * beat late. So it is purely trailing, and does nothing at all while picking,
+   * where every movement already produces a fresh readout.
+   */
+  private scheduleRemeasure(): void {
+    if (this.picking || this.answers.length === 0) {
+      return;
+    }
+    window.clearTimeout(this.#remeasureTrailing);
+    this.#remeasureTrailing = window.setTimeout(
+      () => this.ask({ type: 'remeasure', engine: 'all' }),
+      SETTLE_REMEASURE_MS
+    );
+  }
+
+  /**
+   * Take a click for the picker rather than letting it reach the page.
+   *
+   * Picking an element ends the mode and keeps the element selected, which is
+   * what the gesture means in every other inspector. The click must not also
+   * reach the page: following a link would take the page out from under the
+   * element that was just selected.
+   */
+  private interceptInput(event: InputEvent): boolean {
+    if (event.kind === 'mouseup' && this.#swallowUp) {
+      this.#swallowUp = false;
+      return true;
+    }
+    if (event.kind !== 'mousedown' || !this.inspecting || !this.picking) {
+      return false;
+    }
+    this.#swallowUp = true;
+    this.setPicking(false);
+    // The point that was actually clicked, rather than whatever the throttle
+    // last managed to sample on the way to it.
+    this.askInspect(event.x, event.y);
+    return true;
+  }
+
+  /**
+   * Take one engine's answer, and draw it over that engine's own pane.
+   *
+   * Each pane is highlighted from its own answer rather than from a shared one:
+   * when two engines put the same element in different places, the two
+   * rectangles being in different places is the finding, and a single overlay
+   * would have to pick one of them to be wrong about.
+   */
+  private onInspected(event: Extract<Event, { type: 'inspected' }>): void {
+    // Anything not naming the outstanding question describes a point the
+    // pointer has already left.
+    if (event.id !== this.#inspectId) {
+      return;
+    }
+    this.#pendingAnswers.set(event.engine, {
+      engine: event.engine,
+      element: event.element,
+      ...(event.error === undefined ? {} : { error: event.error }),
+    });
+    if (this.#pendingAnswers.size >= this.#expected) {
+      this.publishAnswers();
+    }
+  }
+
+  /**
+   * Show a readout, once it is whole and if it says anything new.
+   *
+   * Two guards, both against the same thing: a panel that changes while the
+   * pointer is standing still. One holds a sample until every pane has
+   * answered, so the table never grows a column at a time; the other drops a
+   * sample that describes exactly what is already on screen, which is most of
+   * them — the pointer moves a few pixels within one element far more often
+   * than it crosses into another.
+   */
+  private publishAnswers(): void {
+    window.clearTimeout(this.#publishTimer);
+    if (this.#pendingAnswers.size === 0) {
+      return;
+    }
+    const answers = ENGINES.map(engine => this.#pendingAnswers.get(engine)).filter(
+      (answer): answer is InspectAnswer => answer !== undefined
+    );
+    if (readoutSignature(answers) === readoutSignature(this.answers)) {
+      return;
+    }
+    this.answers = answers;
+    // Each pane is highlighted from its own answer: when two engines put the
+    // same element in different places, two rectangles in different places is
+    // the finding, and one shared overlay would have to be wrong about one.
+    this.panes.forEach(pane => {
+      const element = answers.find(answer => answer.engine === pane.engine)?.element ?? null;
+      pane.showHighlight(element ? element.box : null, element ? describeRef(element) : '');
+    });
+  }
+
+  /**
+   * Ask all three the same question.
+   *
+   * What one engine answers is something its own developer tools already say
+   * better; three answers side by side is the thing none of them can show.
+   */
+  private evaluate(expression: string): void {
+    const { id, done } = sendTracked({ type: 'evaluate', engine: 'all', expression });
+    this.evaluations = [...this.evaluations, { id, expression, results: [] }].slice(
+      -EVALUATION_LIMIT
+    );
+    void done.catch((error: unknown) => this.reportError(error));
   }
 
   private setActivePane(source: Engine): void {
@@ -682,6 +992,15 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         // Panes navigate in lockstep, so any pane's URL is the shared URL; the
         // first to report wins and the rest are redundant confirmation.
         const real = event.url && event.url !== 'about:blank';
+        if (real && event.loading) {
+          // Whatever was being inspected belonged to the page being left, and
+          // the engines have already forgotten it — each walker is per
+          // document. Handled here rather than beside the address bar because
+          // this is where every navigation arrives: a link clicked in a pane,
+          // a page redirecting itself, a step along the trail, a reload. Only
+          // the first of those passes through anything the app initiated.
+          this.clearInspection();
+        }
         if (real) {
           this.url = event.url;
           // As soon as the navigation commits, not when the page finishes
@@ -728,6 +1047,41 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
             message: `sidecar ${event.level}: ${event.message}`.slice(0, 400),
           }).catch(() => {});
         }
+        return;
+
+      case 'selection':
+        // Volunteered by the pane the instant it moved something, ahead of the
+        // frame that shows it — so it is drawn straight onto the pane rather
+        // than waiting for a whole readout to be assembled. Ignored while
+        // picking, where every movement already produces a fresh one, and
+        // ignored with the drawer shut, where there is nothing to annotate.
+        if (this.inspecting && !this.picking) {
+          this.pane(event.engine)?.showHighlight(
+            event.element ? event.element.box : null,
+            event.element ? describeRef(event.element) : ''
+          );
+        }
+        return;
+
+      case 'inspected':
+        this.onInspected(event);
+        return;
+
+      case 'evaluated': {
+        const { id, engine, result } = event;
+        this.evaluations = this.evaluations.map(evaluation =>
+          evaluation.id === id
+            ? { ...evaluation, results: [...evaluation.results, { engine, result }] }
+            : evaluation
+        );
+        return;
+      }
+
+      case 'console':
+      case 'page-error':
+        // Kept whether or not the drawer is open: a console switched on after
+        // the page loaded has already missed what it was opened to see.
+        this.messages = appendConsole(this.messages, event);
         return;
 
       case 'ack':
@@ -819,6 +1173,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
           forward: (event, source) => this.forwardInput(event, source),
           enter: source => this.setActivePane(source),
           leave: () => this.clearCursors(),
+          intercept: event => this.interceptInput(event),
         });
       });
     });
@@ -833,6 +1188,8 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         @devkit-noticed=${() => {
           this.upToDate = false;
         }}
+        .inspecting=${this.inspecting}
+        @devkit-inspector=${(event: CustomEvent<boolean>) => this.setInspecting(event.detail)}
         .split=${this.split}
         .canGoBack=${this.canGoBack}
         .canGoForward=${this.canGoForward}
@@ -861,6 +1218,28 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         ${ENGINES.map(engine => html`<devkit-pane .engine=${engine}></devkit-pane>`)}
       </main>
 
+      ${when(
+        this.inspecting,
+        () => html`
+          <devkit-inspector
+            .answers=${this.answers}
+            .messages=${this.messages}
+            .evaluations=${this.evaluations}
+            .picking=${this.picking}
+            .tab=${this.inspectorTab}
+            @devkit-inspector-tab=${(event: CustomEvent<'elements' | 'console'>) => {
+              this.inspectorTab = event.detail;
+            }}
+            @devkit-inspector-close=${() => this.setInspecting(false)}
+            @devkit-pick=${(event: CustomEvent<boolean>) => this.setPicking(event.detail)}
+            @devkit-console-clear=${() => {
+              this.messages = [];
+              this.evaluations = [];
+            }}
+            @devkit-evaluate=${(event: CustomEvent<string>) => this.evaluate(event.detail)}
+          ></devkit-inspector>
+        `
+      )}
       ${this.setupVisible ? this.renderSetup() : nothing}
     `;
   }

@@ -2,6 +2,7 @@ import '../address-bar/address-bar.component.js';
 import '../icon-button/icon-button.component.js';
 // Per icon, not the whole family: the barrel registers every element there is.
 import '@phosphor-icons/webcomponents/PhArrowClockwise';
+import '@phosphor-icons/webcomponents/PhBug';
 import '@phosphor-icons/webcomponents/PhCaretLeft';
 import '@phosphor-icons/webcomponents/PhCaretRight';
 import '@phosphor-icons/webcomponents/PhSquareSplitHorizontal';
@@ -56,6 +57,10 @@ export class AppNavbarComponent extends DevkitElement.withStyles(styles) {
   /** Where the panes are; handed straight to the address bar. */
   @property({ type: String, reflect: true })
   accessor url = '';
+
+  /** Whether the introspection drawer is open, which the toggle reflects. */
+  @property({ type: Boolean, reflect: true })
+  accessor inspecting = false;
 
   @query('devkit-address-bar')
   private accessor addressBar!: AddressBarComponent;
@@ -112,6 +117,13 @@ export class AppNavbarComponent extends DevkitElement.withStyles(styles) {
       <devkit-address-bar .url=${this.url}></devkit-address-bar>
 
       <nav>
+        <devkit-icon-button
+          ?active=${this.inspecting}
+          label=${this.inspecting ? 'Hide the inspector' : 'Show the inspector'}
+          @click=${() => this.emit('devkit-inspector', !this.inspecting)}
+        >
+          <ph-bug></ph-bug>
+        </devkit-icon-button>
         ${this.renderSplitToggle()}
         ${when(
           this.upToDate,
