@@ -45,5 +45,5 @@ belongs in [`docs/internals.md`](../../docs/internals.md), which is where it wil
 
 ## Inspection
 
-- [devtools-for-every-engine.md](devtools-for-every-engine.md) — real developer tools can only be
-  attached to one of the three engines; a comparison inspector is the version worth building
+- [devtools-for-every-engine.md](devtools-for-every-engine.md) — the comparison inspector is built
+  (elements, console, evaluation); what is left is the network panel and the accessibility tree

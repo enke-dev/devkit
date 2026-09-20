@@ -98,6 +98,11 @@ skipped.
   space, which leaves the cursor stuck. The glyph boxes themselves are measured instead, so the
   cursor changes back on the way out of the words.
 
+The probe rides on the inspector's injected walker rather than shipping its own function body on
+every pointer move, which also means it descends: a link inside a shadow root or a same-origin
+frame reports `pointer`, where asking the top document alone resolved to the host or the `<iframe>`
+and reported an arrow. Covered by `bun run verify:inspect`.
+
 The panes you are _not_ pointing at draw a stand-in cursor at the mirrored position, in the same
 shape the pointed-at engine reported — an arrow, a pointing hand or an I-beam, drawn to look like the
 system cursors rather than like an app's own iconography, so the three panes stay comparable. It
@@ -297,6 +302,172 @@ costs nothing, losing the app loses three browsers and whatever was being compar
 `DEVKIT_DEBUG_FRAMES=1 bun run dev` prints, once a second, how many frames the sidecar produced (and
 dropped under backpressure) and how many the frontend received. The two numbers disagreeing is the
 signal that the transport, not the engines, is the constraint.
+
+## Introspection: one point, three answers
+
+The panes already share a viewport and already mirror input in viewport pixels, so a pair of
+coordinates is the only cross-engine identity an element needs. `document.elementFromPoint(x, y)`
+with the same numbers in each engine is the whole addressing scheme: no selector generation, no
+node handles, nothing to keep in sync. When the engines resolve different elements at the same
+point, that is not a failure to reconcile — it is the most interesting thing the feature can
+report, and the panel says so rather than picking one answer to stand for all three.
+
+Everything goes through `page.evaluate`, which means it works identically on all three engines and
+adds no dependency. The engines' own developer tools stay behind the existing detach pop-out; this
+is the convenience layer, not a replacement, and there are deliberately no breakpoints and no
+stepping.
+
+**The walker is injected once per context.** `browserContext.addInitScript` puts it in before any
+script of the page's own, in every frame, for every document the context ever loads — so a
+navigation does not have to be noticed and re-armed, and the few kilobytes of source are parsed
+once rather than on every pointer move. It defines exactly one non-enumerable property on
+`globalThis` and nothing else: no listeners, no elements, no styles.
+
+**The highlight is drawn in the app, over the screencast.** An overlay injected into the page would
+be captured in the very frames it is meant to annotate, which would make the rendering being
+compared a rendering of something else. The pane sends back four rectangles and the app draws them.
+
+**Descent pierces open shadow roots and same-origin frames.** Without it the feature is close to
+useless — `elementFromPoint` stops at a shadow host and at an `<iframe>`. Coordinates are
+translated down on the way into each frame and the rectangles translated back up on the way out, so
+`BoxModel` is always in top-level viewport pixels whatever depth the element was found at. An
+untranslated rectangle draws the highlight in the wrong place, and only on the pages that have a
+frame, which is exactly the kind of bug that ships.
+
+**WebKit charges for reaching at a cross-origin frame.** Reading `contentDocument` across origins
+does not throw — it quietly returns null — but WebKit writes a security error into the *page's* own
+console for the attempt. Measured: hovering one cross-origin iframe put "Blocked a frame with
+origin … from accessing a frame with origin …" into the page error stream, which the console panel
+then shows as though the page had produced it. So the walker judges the origin from the frame's
+`src` first and only reaches for the property when the answer is yes. A frame that redirected
+cross-origin after loading is still touched once; an advert that was cross-origin from the start,
+which is the common case, is not touched at all.
+
+**Computed styles are compared over a curated, normalised set.** A raw `getComputedStyle`
+comparison is unreadable: the engines expose different property counts, expand shorthands
+differently, and disagree cosmetically about values nobody asked after. `INSPECTED_STYLE_GROUPS` in
+the protocol is the list, longhands only, and the walker flattens colours (`rgba(0, 0, 0, 0.5)`
+against `rgb(0 0 0 / 0.5)`), fractional lengths and font-family quoting before anything is
+compared. What survives that is a real difference. What is deliberately *not* flattened:
+`line-height: normal` against a resolved pixel value, and resolved grid tracks — those are
+disagreements about the used value, which is the thing being measured.
+
+**Matched rules are best-effort and say so.** They mean walking `document.styleSheets`, and
+`.cssRules` throws `SecurityError` for a sheet served from another origin, so a page whose CSS
+comes from a CDN has nothing to show. Computed styles are the panel that always works; this one
+reports how many sheets it could not open rather than presenting a short list as the whole truth,
+because an empty rules panel otherwise reads as "this element is unstyled".
+
+**Console is folded before it is queued.** `page.on('console')` and `page.on('pageerror')` stream
+from the moment a pane comes up — a console switched on after the page loaded has already missed
+what it was opened for. The control channel queues rather than dropping, so a page logging inside
+`requestAnimationFrame` would push sixty events a second per engine through it: identical
+consecutive messages are folded into one carrying `repeats`, and past `CONSOLE_RATE_LIMIT` the rest
+are counted and reported as `dropped`. The cost is that a message waits up to
+`CONSOLE_COALESCE_MS` to find out whether it is about to repeat, which is affordable because
+nobody watches a console the way they watch a cursor — and `evaluate` answers on its own path.
+
+Only `message.text()` is read, never `message.args()`: reading the arguments means an evaluation
+per handle per message, and the three engines disagree about what a handle to a DOM node or a
+cyclic object serialises to — which would turn one console into three for reasons that have nothing
+to do with the page.
+
+**Message types are classified twice.** `level` is how bad it is, `kind` is what shape it has, and
+both are closed unions so the app can render every engine the same way; `nativeKind` carries the
+engine's own word for when one of them later deserves special treatment. Measured vocabularies for
+the same page:
+
+| Engine   | `console` types emitted                                                  |
+| -------- | ------------------------------------------------------------------------ |
+| Chromium | count, debug, endGroup, info, log, startGroup, table, trace, warning     |
+| Gecko    | count, debug, endGroup, info, log, startGroup, table, trace, warning     |
+| WebKit   | debug, endGroup, info, log, startGroup, table, trace, warning            |
+
+WebKit emits nothing for `console.count`. Anything unlisted maps to `kind: 'other'` and renders as
+a plain line rather than being dropped.
+
+**Answers are events, not acks.** `ack` is terminal and carries no payload, so `inspect` and
+`evaluate` are answered by one event per pane carrying the command's `id` — the only events besides
+`ack` that do. Three panes answer independently and at different speeds, which beats one ack
+holding three results and waiting for the slowest; a pane that is not running simply never answers,
+so the app counts answers against the panes it asked.
+
+**A selection outlives the point that made it.** Clicking while the picker is on ends the mode and
+keeps the element, and the click is swallowed rather than passed to the page — following a link
+would take the page out from under the thing just selected. The press and its release are swallowed
+together, or three engines are left believing a button is still held.
+
+That selection then has to survive scrolling, and a point cannot express it: the point now holds
+whatever scrolled into it, so asking again would be wrong rather than stale. So each walker keeps
+the element its last inspection landed on — the only state it has — and re-measures its box and
+computed styles, reusing the matched rules, which mean walking every stylesheet and which scrolling
+does not change. Nothing identifying the element crosses the wire, so the panes still cannot be
+asked about each other's, which is the same restriction that makes a point the identity to begin
+with.
+
+**The pane volunteers the move; the frontend does not poll for it.** A highlight drawn over a
+screencast is two things taken at two moments, and scrolling is where that shows: the rectangle
+comes from a measurement and the content from a frame, and any gap between them is visible as the
+highlight sliding against its element. Polling cannot close that gap — it measures somewhere in the
+middle of it by construction.
+
+So `applyInput` measures the selection immediately after applying anything that could have moved it
+— a wheel, a keystroke, a release — which puts the measurement after the scroll and before the next
+capture.
+
+Two things keep that off the hot path, and both were learnt by putting it on there. It is **not
+awaited**: the ack for an input is what paces the next one, so anything waited for inside
+`applyInput` is added to the latency of every scroll. And it is **skipped entirely unless the pane
+has a selection**, which the pane tracks itself rather than asking the page — asking costs exactly
+the round trip being avoided. Without those, scrolling in a session where nobody had opened the
+inspector paid an evaluate per pane per wheel event, with the ack waiting behind all three; the
+panes lagged, and Gecko stopped reaching `stream` at all, because `MOTION_FRAMES` wants three
+frames inside 250ms and the throttled wheel could no longer produce them. It arrives as a `selection` event, sent only when the
+element actually moved, in the same spirit as `cursor`. Pointer movement is deliberately not in that
+list: it moves nothing, and asking three engines about every mouse move is the cost the whole
+arrangement exists to avoid.
+
+The `remeasure` command stays as a backstop, trailing 250ms after the input stops, for movement that
+arrives without further input — a smooth scroll coasting, a layout settling late.
+
+`remeasure` answers with two different nothings, and the sidecar branches on which: **undefined** is
+"this pane has no selection", which is not worth announcing, and **null** is "what was selected has
+left the document", which is the highlight's cue to go. Confusing them would announce a vanished
+selection on every scroll of every page.
+
+The alternative — injecting the highlight into the page so it is rasterised with the content — was
+considered and rejected. The top layer would keep it out of normal layout, and `pointer-events:
+none` would keep it out of `elementFromPoint`, but an injected node still changes the document:
+every `:last-child`, `:nth-child`, `+` and `~` in the page re-evaluates, which silently alters the
+computed styles this feature exists to compare. It would also land in the captured frames, which are
+the evidence. Chromium's `Overlay.highlightNode` does exactly the right thing outside the DOM, and
+has no counterpart in Gecko or WebKit through Playwright — one pane right and two bare is the
+asymmetry the app exists to avoid.
+
+**Identity counts within the tag, not within the children.** The app decides whether one table can
+speak for all three panes by deriving an identity per engine from the breadcrumb and comparing
+them. Built from raw child indices, that identity moves whenever anything at all is inserted beside
+an element — a dev server's overlay, an injected style tag, a node one engine kept and another
+folded away — and the panel then reports three engines disagreeing about an element all three had
+found. Counting among same-tag siblings, the way `:nth-of-type` does, ignores every insertion that
+is not a sibling of the same kind, and a step with an id uses the id instead.
+
+When they really do disagree, the panel shows each engine's whole trail with the first differing
+step marked. Showing only the leaf printed the same description three times and called it a
+difference, which is an assertion nobody can check.
+
+**The readout waits until it is whole.** Answers arrive one engine at a time, and publishing each
+as it landed redrew the table with one column, then two, then three — visible as flicker under a
+pointer that had not moved. A sample is held until every running pane has answered, with a 300ms
+cap for a pane that never will, and a sample whose signature matches what is already on screen is
+dropped rather than rendered. That second guard covers most samples: the pointer moves a few pixels
+within one element far more often than it crosses into another.
+
+`bun run verify:inspect` covers the parts that are engine territory rather than ours: shadow and
+frame descent, rectangle translation, the cross-origin degradations, the normalisations, the cursor
+probe, re-measuring a selection across a scroll, and that the walker adds nothing to the page's own
+error console. It serves two origins,
+because half of what it tests is what happens across one.
 
 ## Running it
 

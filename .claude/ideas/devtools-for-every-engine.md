@@ -26,25 +26,31 @@ So "all three at once" means one excellent panel, one awkward extra window, and 
 three different tools with three different capabilities, which is the opposite of what this app is
 for.
 
-## The version worth building instead
+## The version that got built instead
 
-A comparison inspector, built on what Playwright exposes *uniformly* across the three:
+A comparison inspector, on what Playwright exposes *uniformly* across the three. Elements, console
+and evaluation are done and documented in
+[`docs/internals.md`](../../docs/internals.md#introspection-one-point-three-answers): one point,
+three answers, with the rows the engines disagree about marked.
 
-- `page.on('console')` — console messages
-- `page.on('request')`, `'response'`, `'requestfailed'` — what each engine actually fetched
-- `page.accessibility.snapshot()` — the accessibility tree
-- `getComputedStyle` and box metrics through `page.evaluate` — for the element under the pointer
+## What is left of this idea
 
-One query, three answers, side by side: the computed `font-family` for the hovered element in each
-engine, or the requests one engine made and another did not. That is the thing real developer tools
-cannot do, because each of them only ever shows one browser.
+Two of the four uniform surfaces are still unused:
 
-**The plumbing is mostly built.** `readCursor` in the sidecar already runs `elementFromPoint` and
-`getComputedStyle` inside the page on every pointer move, throttled, with a trailing sample so the
-position the pointer *stops* on is the one reported. An inspector is that same probe returning more
-fields.
+- **`page.on('request')`, `'response'`, `'requestfailed'`** — what each engine actually fetched.
+  The requests one engine made and another did not is a comparison nothing else offers, and it is
+  the one most likely to explain a rendering difference that the computed styles do not. Needs
+  thought about volume: three engines on a heavy page is thousands of events, and the console
+  channel's coalescing does not transfer — requests are not repeats of each other.
+- **`page.accessibility.snapshot()`** — the accessibility tree. Uniform across the three and
+  genuinely divergent between them, which makes it a good fit. The open question is what to compare
+  it *at*: the inspector addresses elements by point, and an a11y snapshot is a whole tree, so
+  either it needs a different addressing scheme or the tree has to be filtered down to the node at
+  the point.
+
 
 ## Escape hatch for the deep cases
 
-A button that opens the current URL in the user's own browser, where their real developer tools and
-extensions already live. No maintenance, and honest about what this tool is and is not.
+Already there: the detach button opens the pane's page in a headed window of the same engine, where
+that engine's real developer tools live. No maintenance, and honest about what this tool is and is
+not.
