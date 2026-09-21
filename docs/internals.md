@@ -57,6 +57,23 @@ address bar's history and the layout sizes are one person's preferences, not one
 
 `bun run verify:sessions` drives two sessions through one sidecar and fails if anything crosses.
 
+### A comparison is a window, and on macOS a tab
+
+⌘T opens another comparison. On macOS the windows carry a shared tabbing identifier and are put into
+one tab group, so they arrive as real system tabs — the overview, ⌘⇧[ and ⌘⇧], dragging one out into
+a window of its own, Merge All Windows. Elsewhere they are windows, because no other platform has an
+equivalent worth imitating.
+
+Tauri stops at the identifier, which is not enough on its own: a window whose tabbing mode is left at
+`automatic` defers to "Prefer tabs when opening documents", and that means full screen only out of
+the box — so asking for a tab would have opened a window on most machines.
+[`windows.rs`](../src-tauri/src/windows.rs) says `preferred` and adds the window to the group it was
+opened from. The tab bar has no `+`; see
+[the idea](../.claude/ideas/tab-bar-plus-button.md) for why not.
+
+Native tabbing is off for transparent or undecorated windows, which is a constraint on any future
+custom title bar rather than a decision taken here.
+
 ## Decisions worth knowing
 
 **All three engines go through Playwright, including WebKit.** The app's own chrome is a WebView —

@@ -15,6 +15,8 @@ belongs in [`docs/internals.md`](../../docs/internals.md), which is where it wil
   engines with a mouse button held down
 - [sidecar-side-input-pacing.md](sidecar-side-input-pacing.md) — the sidecar trusts the client not
   to flood it
+- [tab-bar-plus-button.md](tab-bar-plus-button.md) — the tab bar has no `+`, because nothing in tao
+  answers `newWindowForTab:`; subclassing its window class aborts inside AppKit
 
 ## Rendering
 

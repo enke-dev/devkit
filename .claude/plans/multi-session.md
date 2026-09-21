@@ -138,7 +138,7 @@ On the event side it *is* required: `emitFor` is the only way a session-scoped e
 - [`verify-sessions.ts`](../../packages/sidecar/scripts/verify-sessions.ts): two sessions in one
   sidecar, navigated apart, nothing crossing — and it passes, as does `verify:settle`
 
-## Step 2 — window management
+## Step 2 — window management — **done**
 
 Only now does a second window exist, and the platforms diverge.
 
@@ -149,11 +149,19 @@ and the JS `WindowOptions`. Three things are not handled for us:
 - an identifier alone does not group anything. There is no `setTabbingMode` or `addTabbedWindow:`
   anywhere in tao, so the default `NSWindowTabbingMode.automatic` applies and defers to the user's
   "Prefer tabs" setting — which by default means full screen only. Forcing it needs
-  `setTabbingMode(.preferred)` through objc2, which is already a dependency for the cursors.
-- the tab bar's `+` button and "Move Tab to New Window" only appear when `newWindowForTab:` is
-  answered, which means adding a method to tao's window class at runtime.
+  `setTabbingMode(.preferred)` through objc2, which is already a dependency for the cursors, and
+  `addTabbedWindow:ordered:` to put the new window in the group it was opened from. Both are in
+  [`windows.rs`](../../src-tauri/src/windows.rs).
+- the tab bar's `+` button only appears when `newWindowForTab:` is answered, which means adding a
+  method to a class tao registered. **Not done**, and not for want of trying: the attempt and the
+  AppKit assertion it ends in are written up in
+  [`tab-bar-plus-button.md`](../ideas/tab-bar-plus-button.md).
 - tabbing is switched off outright for transparent or undecorated windows, so this rules out a
   custom title bar for as long as native tabs are wanted.
+
+A tab is a title and nothing else, which is why the window is now named after the page it shows
+([`window-title.utils.ts`](../../packages/app/src/utils/window-title.utils.ts)) — `document.title`
+never reached the native window, which nobody could tell while there was one of them.
 
 What comes free once they are grouped: the tab overview, ⌘⇧[ and ⌘⇧], dragging a tab out into its
 own window, and Merge All Windows.
