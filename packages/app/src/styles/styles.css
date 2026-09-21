@@ -23,6 +23,11 @@
      edge, and two headers of different heights against each other reads as a
      mistake rather than as two panels. */
   --header-height: 28px;
+  /* How far anything with an edge of its own stands off that edge: a pane's
+     header, the inspector's, the rows of its console. One value because the
+     panels sit against each other, and three near-misses read as a mistake
+     rather than as three decisions. */
+  --gutter: 10px;
 
   color-scheme: light dark;
 }

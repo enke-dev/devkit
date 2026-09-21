@@ -3,7 +3,7 @@
   gap: 8px;
   align-items: center;
   min-width: 0;
-  padding: 0 10px;
+  padding: 0 var(--gutter);
   border-bottom: 1px solid var(--border);
   font-size: 11px;
   /* Nothing in here may wrap. The header is one line tall by construction, so

@@ -23,7 +23,7 @@ header {
   display: flex;
   gap: 4px;
   align-items: center;
-  padding: 0 6px;
+  padding: 0 var(--gutter);
   border-bottom: 1px solid var(--border);
 }
 
@@ -53,9 +53,16 @@ header {
   overflow: auto;
 }
 
+/* The console runs its rows edge to edge and insets what is in them, so that
+   a highlighted row is a band across the drawer rather than a floating strip.
+   Everything else is inset as a whole. */
+.body:not(.console) {
+  padding: var(--gutter);
+}
+
 .hint {
   margin: 0;
-  padding: 14px 10px;
+  padding: 14px var(--gutter);
   color: var(--text-dim);
 }
 
@@ -192,7 +199,7 @@ code {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  padding: 3px 4px;
+  padding: 8px var(--gutter);
   color: var(--text-dim);
 }
 
@@ -439,7 +446,7 @@ summary {
   grid-column: 1 / -1;
   grid-template-columns: subgrid;
   gap: 0 8px;
-  padding: 3px 4px;
+  padding: 8px var(--gutter);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   font:
     11px/1.6 ui-monospace,
@@ -559,7 +566,7 @@ summary {
 }
 
 .evaluations > li {
-  padding: 4px;
+  padding: 8px var(--gutter);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
 }
 
@@ -603,7 +610,7 @@ summary {
 
 input.expression {
   width: 100%;
-  padding: 3px 4px;
+  padding: 8px var(--gutter);
   border: 0;
   background: transparent;
   color: var(--text);
