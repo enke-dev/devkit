@@ -1,8 +1,9 @@
-import type { Command, Event, SidecarStatus } from '@devkit/protocol';
+import type { Command, Emission, Event, SidecarStatus } from '@devkit/protocol';
 import { PRIVACY_SETTINGS_URL, SIDECAR_EVENT, SIDECAR_STATUS_EVENT } from '@devkit/protocol';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
+import { sessionId } from './session-id.utils.js';
 import type { Timings } from './timing.utils.js';
 import { takeTimings } from './timing.utils.js';
 
@@ -13,6 +14,10 @@ import { takeTimings } from './timing.utils.js';
  * for the command just sent — comes back on the event channel. Sending returns
  * a promise that settles on the matching ack, so callers can await a navigation
  * without inventing their own correlation.
+ *
+ * Which session a command belongs to is not said here: the backend stamps it
+ * from the webview that invoked it, so this window cannot get it wrong and
+ * cannot claim to be another one.
  */
 
 let nextId = 0;
@@ -128,7 +133,14 @@ export async function connect(handlers: {
   onEvent: (event: Event) => void;
   onStatus: (status: SidecarStatus) => void;
 }): Promise<void> {
-  await listen<Event>(SIDECAR_EVENT, ({ payload }) => {
+  await listen<Emission>(SIDECAR_EVENT, ({ payload }) => {
+    // The backend already answers this window alone, so a foreign session here
+    // would be a routing bug. Dropped rather than trusted: an app window
+    // rendering another one's frames is not something anybody would see as
+    // wrong, only as inexplicable.
+    if ('session' in payload && payload.session !== undefined && payload.session !== sessionId()) {
+      return;
+    }
     if (payload.type === 'ack') {
       settle(payload);
     }

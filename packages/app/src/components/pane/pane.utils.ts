@@ -1,6 +1,8 @@
 import type { ColorScheme, Engine, Rect, Viewport } from '@devkit/protocol';
 import { FRAME_SCHEME } from '@devkit/protocol';
 
+import { sessionId } from '../../utils/session-id.utils.js';
+
 /**
  * Stand-in cursor shapes, drawn to look like the system cursors they stand in
  * for — not like an app's own iconography.
@@ -97,10 +99,14 @@ export function safeCursorCss(css: string): string {
 
 /**
  * Where a frame's bytes are fetched from. The sequence number only makes the
- * URL unique; the backend always answers with this engine's newest frame.
+ * URL unique; the backend always answers with this pane's newest frame.
+ *
+ * The session is in the path because it is in the store: every window has a
+ * Chromium, and a URL naming only the engine would be three windows asking for
+ * the same picture.
  */
 export function frameUrl(engine: Engine, seq: number | string): string {
-  return `${FRAME_ORIGIN}/${engine}/${seq}`;
+  return `${FRAME_ORIGIN}/${sessionId()}/${engine}/${seq}`;
 }
 
 /**

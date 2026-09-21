@@ -18,7 +18,13 @@
  * go".
  */
 
-const KEY = 'devkit.session';
+import { sessionKey } from './session-id.utils.js';
+
+/**
+ * Per session: two windows are two comparisons, and a shared trail would send
+ * one of them back to where the other had been.
+ */
+const KEY = sessionKey('devkit.session');
 
 /** Long enough to walk back through an afternoon, short enough to write often. */
 const LIMIT = 200;

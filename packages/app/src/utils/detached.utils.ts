@@ -1,10 +1,11 @@
-import type { Engine } from '@devkit/protocol';
+import type { Engine, SessionId } from '@devkit/protocol';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 
 import type { DomTreeWire } from './dom.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from './inspect.utils.js';
 import type { InspectorDock } from './layout.utils.js';
+import { sessionId } from './session-id.utils.js';
 
 /**
  * The inspector in a window of its own.
@@ -24,14 +25,31 @@ import type { InspectorDock } from './layout.utils.js';
  * drawer opens rather than when the pane does.
  */
 
-/** App window to inspector window: what to show. */
-export const INSPECTOR_STATE_EVENT = 'devkit://inspector-state';
+/**
+ * App window to inspector window: what to show.
+ *
+ * Named per session rather than once. Tauri's events reach every webview that
+ * is listening, so two app windows with their inspectors out would each be
+ * shown the other's console — and the channel name is the cheapest place to say
+ * whose state this is.
+ */
+export function inspectorStateEvent(session: SessionId): string {
+  return `devkit://inspector-state/${session}`;
+}
 
 /** Inspector window to app window: what was asked for. */
-export const INSPECTOR_INTENT_EVENT = 'devkit://inspector-intent';
+export function inspectorIntentEvent(session: SessionId): string {
+  return `devkit://inspector-intent/${session}`;
+}
 
-/** The window label, which is also how it is found again after a reload. */
-export const INSPECTOR_WINDOW = 'inspector';
+/**
+ * The window label, which is also how it is found again after a reload — and
+ * how the inspector knows which app window it belongs to, since a label
+ * outlives a reload where a variable does not.
+ */
+export function inspectorWindowLabel(session: SessionId): string {
+  return `inspector:${session}`;
+}
 
 /**
  * State pushed to the detached window.
@@ -98,27 +116,45 @@ export type InspectorIntent =
   | { kind: 'tree-search'; query: string };
 
 export function sendState(state: InspectorState): void {
-  void emit(INSPECTOR_STATE_EVENT, state).catch(() => {
+  void emit(inspectorStateEvent(ownerSession()), state).catch(() => {
     // The window has gone, or has not arrived yet. Its handshake will ask for
     // everything again, so nothing is lost by a push that lands nowhere.
   });
 }
 
 export function sendIntent(intent: InspectorIntent): void {
-  void emit(INSPECTOR_INTENT_EVENT, intent).catch(() => {});
+  void emit(inspectorIntentEvent(ownerSession()), intent).catch(() => {});
 }
 
 export function onState(handle: (state: InspectorState) => void): Promise<() => void> {
-  return listen<InspectorState>(INSPECTOR_STATE_EVENT, ({ payload }) => handle(payload));
+  return listen<InspectorState>(inspectorStateEvent(ownerSession()), ({ payload }) =>
+    handle(payload)
+  );
 }
 
 export function onIntent(handle: (intent: InspectorIntent) => void): Promise<() => void> {
-  return listen<InspectorIntent>(INSPECTOR_INTENT_EVENT, ({ payload }) => handle(payload));
+  return listen<InspectorIntent>(inspectorIntentEvent(ownerSession()), ({ payload }) =>
+    handle(payload)
+  );
 }
 
 /** Whether this webview is the detached inspector rather than the app itself. */
 export function isInspectorView(): boolean {
   return new URLSearchParams(window.location.search).get('view') === 'inspector';
+}
+
+/**
+ * The session both sides of this channel are talking about.
+ *
+ * The app window's own, or — in a detached inspector, whose label is its
+ * owner's with a prefix — the window it was opened from. Taken from the label
+ * rather than kept in a variable so that a reloaded inspector, which has
+ * forgotten everything else, still knows whose console it is showing.
+ */
+function ownerSession(): SessionId {
+  const label = sessionId();
+  const prefix = inspectorWindowLabel('');
+  return label.startsWith(prefix) ? label.slice(prefix.length) : label;
 }
 
 /**
@@ -142,13 +178,14 @@ let closingOnPurpose = false;
  */
 export async function openInspectorWindow(onClosed: () => void): Promise<void> {
   const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const existing = await WebviewWindow.getByLabel(INSPECTOR_WINDOW);
+  const label = inspectorWindowLabel(sessionId());
+  const existing = await WebviewWindow.getByLabel(label);
   if (existing) {
     await existing.setFocus();
     return;
   }
 
-  const created: WebviewWindow = new WebviewWindow(INSPECTOR_WINDOW, {
+  const created: WebviewWindow = new WebviewWindow(label, {
     url: 'index.html?view=inspector',
     title: 'DevKit Inspector',
     width: 620,
@@ -171,7 +208,7 @@ export async function openInspectorWindow(onClosed: () => void): Promise<void> {
 
 export async function closeInspectorWindow(): Promise<void> {
   const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-  const existing = await WebviewWindow.getByLabel(INSPECTOR_WINDOW);
+  const existing = await WebviewWindow.getByLabel(inspectorWindowLabel(sessionId()));
   if (!existing) {
     return;
   }
