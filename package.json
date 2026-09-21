@@ -29,7 +29,8 @@
     "verify:settle": "bun run --filter @devkit/sidecar verify:settle",
     "verify:recovery": "bun run --filter @devkit/sidecar verify:recovery",
     "verify:inspect": "bun run --filter @devkit/sidecar verify:inspect",
-    "verify:tree": "bun run --filter @devkit/sidecar verify:tree"
+    "verify:tree": "bun run --filter @devkit/sidecar verify:tree",
+    "verify:reveal": "bun run --filter @devkit/app verify:reveal"
   },
   "devDependencies": {
     "@awmottaz/prettier-plugin-void-html": "2.2.1",

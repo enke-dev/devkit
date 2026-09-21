@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Reveal harness</title>
+    <!--
+      Not an entry point. Vite builds `index.html` alone, so nothing here is
+      ever bundled or shipped; it is served only by the server `verify:reveal`
+      starts for itself.
+    -->
+    <link rel="stylesheet" href="/src/styles/styles.css">
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+      }
+
+      devkit-app {
+        height: 100%;
+      }
+    </style>
+    <script type="module" src="./harness.ts"></script>
+  </head>
+  <body></body>
+</html>

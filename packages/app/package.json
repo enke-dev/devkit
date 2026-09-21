@@ -6,7 +6,10 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "check": "tsc -p tsconfig.json --noEmit",
+    "check": "bun run --parallel check:*",
+    "check:src": "tsc -p tsconfig.json --noEmit",
+    "check:scripts": "tsc -p scripts/tsconfig.json",
+    "verify:reveal": "node scripts/verify-reveal.ts",
     "lint": "bun run --parallel lint:*",
     "lint:prettier": "bun --bun prettier --config prettier.config.ts --check .",
     "lint:eslint": "bun --bun eslint --config eslint.config.ts",
@@ -25,6 +28,8 @@
   },
   "devDependencies": {
     "@devkit/protocol": "workspace:*",
+    "@types/node": "24.13.4",
+    "playwright": "1.63.0",
     "typescript": "5.9.3",
     "vite": "8.3.0",
     "vite-plugin-lit-css": "3.1.0"
