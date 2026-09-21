@@ -68,7 +68,11 @@ export class PaneNavbarComponent extends DevkitElement.withStyles(styles) {
       <span class="dims">${this.dims}</span>
       <nav>
         <devkit-icon-button
-          label=${this.detaching ? 'Opening ${ENGINE_LABELS[this.engine]} window' : `Open in a ${ENGINE_LABELS[this.engine]} window`}
+          label=${
+            this.detaching
+              ? `Opening ${ENGINE_LABELS[this.engine]} window`
+              : `Open in a ${ENGINE_LABELS[this.engine]} window`
+          }
           ?disabled=${this.detaching || !isRunning(this.status)}
           @click=${() => this.dispatchEvent(new CustomEvent('devkit-detach'))}
         >
