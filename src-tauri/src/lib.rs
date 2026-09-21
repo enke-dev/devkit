@@ -29,6 +29,29 @@ fn debug_log(message: String) {
     note!("[ui] {message}");
 }
 
+/// Open the Privacy & Security pane a blocked pane needs a grant from.
+///
+/// Here rather than in the frontend because the frontend is given no shell
+/// permission at all, and one opener is not worth making it the exception.
+/// macOS only: this is the only platform that withholds the grant.
+#[tauri::command]
+fn open_privacy_settings(url: String) -> Result<(), String> {
+    // The frontend names the pane, so the scheme is checked here rather than
+    // trusted: this is a process spawn taking an argument from the webview.
+    if !url.starts_with("x-apple.systempreferences:") {
+        return Err("not a settings url".into());
+    }
+    if !cfg!(target_os = "macos") {
+        return Err("only macOS withholds this grant".into());
+    }
+
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| error.to_string())
+}
+
 /// Restart the sidecar after a crash, or after the user retries a failed launch.
 #[tauri::command]
 fn sidecar_restart(app: tauri::AppHandle) -> Result<(), String> {
@@ -106,6 +129,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             sidecar_send,
             sidecar_restart,
+            open_privacy_settings,
             debug_log,
             cursors::get_native_cursor_by_type
         ])

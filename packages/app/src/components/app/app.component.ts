@@ -1840,9 +1840,17 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         return;
 
       case 'pane':
-        this.pane(event.engine)?.setStatus(event.status, event.detail, event.version);
-        // A pane whose engine died is relaunched rather than left blank.
-        if (event.status === 'closed' || event.status === 'failed') {
+        this.pane(event.engine)?.setStatus(
+          event.status,
+          event.detail,
+          event.version,
+          event.blocked
+        );
+        // A pane whose engine died is relaunched rather than left blank — but
+        // not one macOS refused: that fails identically every two seconds until
+        // somebody grants the permission, and the retries bury the pane that
+        // says so.
+        if ((event.status === 'closed' || event.status === 'failed') && !event.blocked) {
           this.scheduleRelaunch(event.engine);
         }
         return;

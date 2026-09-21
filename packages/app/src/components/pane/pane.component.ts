@@ -1,12 +1,21 @@
 import '../pane-navbar/pane-navbar.component.js';
 
-import type { BoxModel, ColorScheme, Engine, Event, PaneStatus, Viewport } from '@devkit/protocol';
+import type {
+  BoxModel,
+  ColorScheme,
+  Engine,
+  Event,
+  PaneBlocker,
+  PaneStatus,
+  Viewport,
+} from '@devkit/protocol';
 import { ENGINE_LABELS, FRAME_LATEST } from '@devkit/protocol';
 import { html, nothing, svg } from 'lit';
 import { customElement, property, query, state } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
 
 import { DevkitElement } from '../../utils/base.utils.js';
+import { openPrivacySettings } from '../../utils/bridge.utils.js';
 import type { NativeCursor } from '../../utils/cursors.utils.js';
 import { cursorTypeFor, nativeCursor } from '../../utils/cursors.utils.js';
 import type { Timings } from '../../utils/timing.utils.js';
@@ -77,6 +86,16 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
 
   @state()
   private accessor detail = '';
+
+  /**
+   * Why this pane failed, where the failure is one we can name.
+   *
+   * Kept apart from `detail` because it replaces it rather than decorates it:
+   * the browser's own words explain nothing to somebody who has not read the
+   * notes, and an engine that is only waiting for a permission is not broken.
+   */
+  @state()
+  private accessor blocked: PaneBlocker | null = null;
 
   @state()
   private accessor version = '';
@@ -203,11 +222,17 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
    * is remembered rather than cleared by later status changes: a pane that has
    * closed was still rendered by that build.
    */
-  setStatus(status: PaneStatus | 'missing', detail?: string, version?: string): void {
+  setStatus(
+    status: PaneStatus | 'missing',
+    detail?: string,
+    version?: string,
+    blocked?: PaneBlocker
+  ): void {
     // A pane that has just come up has produced no frame yet, so it starts in
     // the mode that needs no evidence; the first frame says which it really is.
     this.setState(status === 'live' ? 'stream' : status);
     this.detail = detail ?? '';
+    this.blocked = blocked ?? null;
     if (version) {
       this.version = version;
     }
@@ -422,7 +447,8 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
       <div class="surface" style=${styleMap({ cursor: safeCursorCss(this.cursorCss) })}>
         <img alt="${label} rendering" decoding="async">
         ${this.status === 'missing' ? this.renderInstall(label) : nothing}
-        ${this.detail ? html`<p class="detail">${this.detail}</p>` : nothing}
+        ${this.blocked ? this.renderBlocked(label) : nothing}
+        ${this.detail && !this.blocked ? html`<p class="detail">${this.detail}</p>` : nothing}
         ${this.highlight ? this.renderHighlight(this.highlight) : nothing}
         ${this.cursor ? this.renderCursor(this.cursor) : nothing}
       </div>
@@ -485,6 +511,30 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
           ${this.installing ? 'Downloading…' : 'Download engine'}
         </button>
         ${this.progress ? html`<p class="progress">${this.progress}</p>` : nothing}
+      </div>
+    `;
+  }
+
+  /**
+   * What to say when macOS refused the engine rather than the engine failing.
+   *
+   * It names the permission and offers the one pane it can be given in, because
+   * the browser's message — that it could not find its profile — points at
+   * neither. There is no retry button: the pane relaunches by itself once the
+   * grant is there and DevKit is restarted, and a button that cannot know when
+   * that happened would mostly be a button that does nothing.
+   */
+  private renderBlocked(label: string) {
+    return html`
+      <div class="empty">
+        <p>macOS blocked ${label} from reading its own profile.</p>
+        <p class="progress">
+          Grant DevKit Full Disk Access, then restart it. Firefox reads a file belonging to another
+          app on the way up, and macOS refuses that without the grant.
+        </p>
+        <button type="button" class="install" @click=${() => void openPrivacySettings()}>
+          Open Settings
+        </button>
       </div>
     `;
   }

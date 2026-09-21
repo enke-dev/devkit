@@ -7,9 +7,11 @@ import type {
   EvaluatedValue,
   InputEvent,
   InspectedElement,
+  PaneBlocker,
   SourceLocation,
   Viewport,
 } from '@devkit/protocol';
+import { APP_DATA_SIGNATURE } from '@devkit/protocol';
 import type { Browser, BrowserContext, Page } from 'playwright';
 import { chromium, firefox, webkit } from 'playwright';
 
@@ -406,7 +408,15 @@ export class Pane {
       this.#launched = true;
       emit({ type: 'pane', engine: this.engine, status: 'live', version: this.#browser.version() });
     } catch (error) {
-      emit({ type: 'pane', engine: this.engine, status: 'failed', detail: describe(error) });
+      const detail = describe(error);
+      const blocked = blockerFor(detail);
+      emit({
+        type: 'pane',
+        engine: this.engine,
+        status: 'failed',
+        detail,
+        ...(blocked ? { blocked } : {}),
+      });
       await this.close();
       throw error;
     }
@@ -1544,6 +1554,17 @@ function jpegSize(buffer: Buffer): { width: number; height: number } | null {
     offset += 2 + length;
   }
   return null;
+}
+
+/**
+ * The named cause behind a launch failure, where there is one.
+ *
+ * Matched on the browser's own words rather than on the engine: Gecko is the
+ * only one that reads another app's data today, but what makes this failure
+ * recognisable is the message, not who produced it.
+ */
+function blockerFor(detail: string): PaneBlocker | undefined {
+  return detail.includes(APP_DATA_SIGNATURE) ? 'app-data' : undefined;
 }
 
 export function describe(error: unknown): string {

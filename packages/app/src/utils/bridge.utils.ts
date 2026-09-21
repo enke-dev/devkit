@@ -1,5 +1,5 @@
 import type { Command, Event, SidecarStatus } from '@devkit/protocol';
-import { SIDECAR_EVENT, SIDECAR_STATUS_EVENT } from '@devkit/protocol';
+import { PRIVACY_SETTINGS_URL, SIDECAR_EVENT, SIDECAR_STATUS_EVENT } from '@devkit/protocol';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 
@@ -73,6 +73,16 @@ export function awaitingAck(): number {
 
 export function restart(): Promise<void> {
   return invoke('sidecar_restart');
+}
+
+/**
+ * Open the Settings pane a blocked engine needs a grant from.
+ *
+ * Opening it is all anyone can do: macOS has no way to ask for these grants,
+ * only to show where they are given.
+ */
+export function openPrivacySettings(): Promise<void> {
+  return invoke('open_privacy_settings', { url: PRIVACY_SETTINGS_URL });
 }
 
 function settle(event: Extract<Event, { type: 'ack' }>): void {

@@ -291,7 +291,15 @@ export type Event =
    * Which build rendered a page is the first thing worth knowing when two panes
    * disagree, so it is stated rather than left to be guessed from the engine name.
    */
-  | { type: 'pane'; engine: Engine; status: PaneStatus; detail?: string; version?: string }
+  | {
+      type: 'pane';
+      engine: Engine;
+      status: PaneStatus;
+      detail?: string;
+      version?: string;
+      /** Set only on `failed`, and only where the failure is one we can name. */
+      blocked?: PaneBlocker;
+    }
   /** Navigation state, mirrored into the address bar and nav buttons. */
   | { type: 'navigation'; engine: Engine; url: string; title: string; loading: boolean }
   /**
@@ -1051,6 +1059,34 @@ export const INSPECTED_PROPERTIES: readonly InspectedProperty[] = INSPECTED_STYL
  * about the used value, which is the thing being compared.
  */
 export const STYLE_VALUE_PRECISION = 2;
+
+/**
+ * A launch failure the app can explain rather than only quote.
+ *
+ * `app-data` is macOS App Data protection. Firefox reads
+ * `~/Library/Application Support/Firefox/profiles.ini` on the way up whatever
+ * profile it was handed, and that directory belongs to another app — so a
+ * process without the grant is refused and the browser exits saying it could
+ * not find its profile, which names neither the file nor the permission.
+ *
+ * Chromium and WebKit read nothing belonging to anyone else, which is why this
+ * only ever comes from Gecko, and only on macOS.
+ */
+export type PaneBlocker = 'app-data';
+
+/** What Gecko exits with when App Data protection refused `profiles.ini`. */
+export const APP_DATA_SIGNATURE = 'Could not find profile folder';
+
+/**
+ * Where to send somebody whose pane is blocked.
+ *
+ * Full Disk Access, although App Data is the narrower permission actually at
+ * stake: App Data has no list of its own to open — it is granted by answering a
+ * prompt, and once that prompt has been missed there is nothing to point at.
+ * Full Disk Access is the superset, so granting it ends the question.
+ */
+export const PRIVACY_SETTINGS_URL =
+  'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';
 
 export type PaneStatus =
   | 'idle'
