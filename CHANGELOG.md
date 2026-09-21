@@ -1,5 +1,17 @@
 # DevKit
 
+# [0.5.0](https://github.com/enke-dev/devkit/compare/v0.4.0...v0.5.0) (2026-09-21)
+
+### Bug Fixes
+
+* **ci:** name the Rust toolchain, which pinning the action removed ([07f4fe6](https://github.com/enke-dev/devkit/commit/07f4fe61a224d7ebf5c18d782545fe49982b2e9b))
+* pass .env to the build, which bun does not do for scripts ([b8dc6d7](https://github.com/enke-dev/devkit/commit/b8dc6d729e4c1fc7a655db56fef4254bfad82389))
+
+### Features
+
+* ask macOS for the grant instead of sending people to Settings ([e85b43d](https://github.com/enke-dev/devkit/commit/e85b43d8a4a50007d13a12fb3fd9643a90be904d))
+* explain a pane macOS blocked instead of quoting the browser ([3cef6e6](https://github.com/enke-dev/devkit/commit/3cef6e622311bee83a3181f29a2ac2bfc320a34a))
+
 # [0.4.0](https://github.com/enke-dev/devkit/compare/v0.3.1...v0.4.0) (2026-09-21)
 
 ### Bug Fixes
