@@ -653,7 +653,7 @@ Tauri resolves the `resources` entry at build time and refuses to build without 
 
 The dev server runs on port 1430.
 
-Six behaviour checks run real engines, or the real app, rather than mocks. They are opt-in — nothing
+Seven behaviour checks run real engines, or the real app, rather than mocks. They are opt-in — nothing
 in `check` or `lint` starts a browser — and each is described where it matters above.
 
 ```sh
@@ -663,7 +663,12 @@ bun run verify:recovery    # a killed engine reports closed once and comes back
 bun run verify:inspect     # descent, translation, normalisation, the cursor probe
 bun run verify:tree        # handles, boundaries, identity chains, watching
 bun run verify:reveal      # the app's own reveal orderings, with the bridge stubbed
+bun run verify:blocked     # a pane macOS refused is explained, not quoted
 ```
+
+`verify:blocked` submits itself through `launchctl`, because the refusal depends on how the process
+was started rather than on what it does, and says so rather than passing where the grant is already
+there.
 
 ## Packaging
 

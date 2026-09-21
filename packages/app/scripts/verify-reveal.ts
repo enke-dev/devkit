@@ -115,6 +115,9 @@ interface Harness {
   answerChildren(): number;
   switchEngine(engine: string): void;
   invalidate(engine: string): void;
+  blockPane(engine: string): void;
+  paneText(engine: string): string;
+  startCount(): number;
   rows(): Row[];
   markedEngine(): string;
   sentTypes(): string[];
@@ -250,6 +253,31 @@ try {
     'opens correctly when a pick lands mid-switch',
     rows.length === 5 && rows[rows.length - 1]?.selected === true,
     shown(rows)
+  );
+
+  // A pane macOS refused, which is not a crash and must not be treated as one.
+  const startsBefore = await page.evaluate(() => harness.startCount());
+  await page.evaluate(() => harness.blockPane('firefox'));
+  await settle(200);
+
+  const blockedText = await page.evaluate(() => harness.paneText('firefox'));
+  check(
+    'a blocked pane says which permission it wants',
+    blockedText.includes('Full Disk Access'),
+    blockedText || 'the pane said nothing'
+  );
+  check(
+    'a blocked pane does not quote the browser instead',
+    !blockedText.includes('Could not find profile folder'),
+    blockedText
+  );
+
+  // Past the two seconds a dead engine would have been restarted after.
+  await settle(2600);
+  check(
+    'a blocked pane is not relaunched into the same refusal',
+    (await page.evaluate(() => harness.startCount())) === startsBefore,
+    `start sent ${(await page.evaluate(() => harness.startCount())) - startsBefore} more time(s)`
   );
 
   check('the page reported no errors', problems.length === 0, problems.slice(0, 3).join(' | '));

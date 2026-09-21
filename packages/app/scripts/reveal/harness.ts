@@ -1,5 +1,5 @@
 import type { Command, DomNode, Engine, Event, InspectedElement } from '@devkit/protocol';
-import { ENGINES, SIDECAR_EVENT } from '@devkit/protocol';
+import { APP_DATA_SIGNATURE, ENGINES, SIDECAR_EVENT } from '@devkit/protocol';
 
 /**
  * The real app, with the backend replaced by something this file can time.
@@ -226,6 +226,36 @@ Object.assign(globalThis, {
         ?.shadowRoot?.querySelector('devkit-tabs')
         ?.shadowRoot?.querySelector('[aria-selected="true"]');
       return marked?.textContent?.trim() ?? '';
+    },
+
+    /**
+     * What a pane says when macOS refused it rather than the engine failing.
+     *
+     * The detail is the browser's real parting words, so the check is against
+     * what the app does with the message it actually gets.
+     */
+    blockPane(engine: Engine) {
+      deliver({
+        type: 'pane',
+        engine,
+        status: 'failed',
+        detail: `browserType.launch: Failed to launch. ${APP_DATA_SIGNATURE}`,
+        blocked: 'app-data',
+      });
+    },
+
+    /** What one pane is showing over its surface, as one line. */
+    paneText(engine: Engine) {
+      const pane = [...(app.shadowRoot?.querySelectorAll('devkit-pane') ?? [])].find(
+        element => (element as unknown as { engine: string }).engine === engine
+      );
+      const surface = pane?.shadowRoot?.querySelector('.empty, .detail');
+      return surface?.textContent?.trim().replace(/\s+/g, ' ') ?? '';
+    },
+
+    /** How many times the panes have been asked to start. */
+    startCount() {
+      return of('start').length;
     },
 
     /** Every command kind sent so far, for a failure that needs explaining. */
