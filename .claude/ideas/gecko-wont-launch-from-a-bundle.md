@@ -120,6 +120,27 @@ disagree, the real app is the evidence.
   cdhash changes on every build, so an update orphans whatever was granted — which matches DevKit
   not even being listed in Full Disk Access after a prod update. **Signing with a Developer ID** is
   what makes a grant survive an update, and plausibly what makes the prompt appear at all.
+- **Asking is implemented but unproven.** The blocked pane offers *Allow access…*, which has the
+  app read the refused file itself, from the foreground, on a click — the only thing that raises the
+  prompt, since no API requests a TCC permission. Whether macOS actually asks, or refuses an ad-hoc
+  app outright, has not been observed. Testing it needs the fixed build to be the one macOS opens,
+  which is the next item.
+- **Two bundles of the same app are two apps to TCC.** Measured on the same machine, same
+  `CFBundleIdentifier`:
+
+  | bundle                     | signing identifier        |
+  | -------------------------- | ------------------------- |
+  | `/Applications/DevKit.app` | `devkit-2589f31ed90b24b4` |
+  | `target/release/bundle`    | `devkit-10bbc0eeff3dabf8` |
+
+  Ad-hoc identifiers are derived per build, so a grant given to one covers nothing else — and
+  Settings' *Quit & Reopen*, Spotlight and the Dock all open the installed one. That is the whole of
+  why this recurs after an update, and it is the same finding as `code-signing.md` arrived at from
+  the other side.
+- **App Data decisions cannot be read back from a shell.** They go to the per-user `tccd`, and on
+  macOS 27 there is no readable database at `~/Library/Application Support/com.apple.TCC/`. Only the
+  system store — Full Disk Access and friends — can be inspected, so the unified log is the evidence
+  for anything App Data does.
 - **Say so on first run.** A pane that failed this way should detect it and explain it, rather than
   printing `Could not find profile folder`, which tells nobody anything. The detection is cheap and
   specific: Gecko alone failed, with that message.
