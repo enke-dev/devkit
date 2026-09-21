@@ -47,13 +47,22 @@ fights, and crashes from resizing real windows out from under their owners.
 the private Juggler protocol, which is why it works at all — so it must be Playwright's own binary,
 never a system install.
 
-**A container query only reaches one shadow boundary up, in WebKit.** The pane headers shrink by
-measuring themselves against a container query, and the obvious container is the pane — but the
-rules live in the header's shadow root, which is two boundaries below the pane's host. Measured in
-all three engines with a reduced case: Chromium and Gecko resolve a named container across that,
-WebKit does not, and it fails silently — nothing hides, no warning. Since the app's own chrome is
-WebKit on macOS, that is the configuration that matters most. The container therefore sits on the
-header's own host, one boundary away, which every engine resolves. It is the same width either way.
+**WebKit will not resolve a container by *name* across a shadow boundary.** The pane headers shrink
+by measuring themselves against a container query, and the container is the pane — two shadow
+boundaries above the rules, which live in the header's shadow root. Measured in all three with a
+reduced case:
+
+| Query                            | Chromium | Gecko | WebKit |
+| -------------------------------- | -------- | ----- | ------ |
+| `@container pane (…)`, named     | works    | works | **no** |
+| `@container (…)`, unnamed        | works    | works | works  |
+
+It is the naming, not the boundary: an unnamed query finds the nearest ancestor container through
+any number of shadow roots in every engine. And it fails silently — nothing hides, no warning —
+which in the app's own chrome, WebKit on macOS, meant every pane. So the pane declares
+`container: pane / inline-size` and the header queries it without naming it. The name stays for
+whoever reads the stylesheet; the cost is that nothing may declare a container between the two, or
+the query would bind to that instead.
 
 **`pointerleave` never reaches the window.** It does not bubble, so a listener on `window` is never
 called — measured in all three engines, where leaving the page fired nothing there. What does fire

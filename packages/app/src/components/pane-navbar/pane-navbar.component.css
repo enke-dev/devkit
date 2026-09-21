@@ -1,16 +1,3 @@
-/*
- * The header decides here, once, and the rest of it reads the decision.
- *
- * The container is the pane, one shadow boundary above this host — which every
- * engine resolves. Two boundaries, down into this shadow root, is where WebKit
- * stops: measured in all three, Chromium and Gecko find the container from
- * inside here and WebKit silently does not, so a rule written against it would
- * do nothing at all in the app's own chrome, which is WebKit on macOS.
- *
- * So the query is answered on `:host`, where it resolves, and what it decides
- * travels inward as a custom property, which inherits across shadow boundaries
- * without any of that trouble.
- */
 :host {
   display: flex;
   gap: 8px;
@@ -24,10 +11,6 @@
      takes the baseline of everything beside it with it. What does not fit is
      dropped, never folded. */
   white-space: nowrap;
-
-  /* Shown unless the header says otherwise. */
-  --detail: inline;
-  --dot-gap: 5px;
 }
 
 :host([active]) {
@@ -51,7 +34,6 @@
 }
 
 .name {
-  display: var(--detail);
   flex: none;
 }
 
@@ -97,7 +79,6 @@ svg.engine {
 .version {
   min-width: 0;
   overflow: hidden;
-  display: var(--detail);
   color: var(--text-dim);
   font-weight: 400;
   white-space: nowrap;
@@ -154,16 +135,12 @@ ph-sun {
   flex: none;
 }
 
-.status .label {
-  display: var(--detail);
-}
-
 .status::before {
   content: '';
   display: inline-block;
   width: 6px;
   height: 6px;
-  margin-right: var(--dot-gap);
+  margin-right: 5px;
   border-radius: 50%;
   background: currentColor;
   vertical-align: 1px;
@@ -179,11 +156,28 @@ ph-sun {
 
    The spacing goes with them: gaps sized for a header with words in it are too
    generous for one that is mostly glyphs and numbers, and at this width every
-   one of them is a pixel something else could have used. */
-@container pane (width < 380px) {
+   one of them is a pixel something else could have used.
+
+   Queried without naming the container, which matters. The container is the
+   pane, two shadow boundaries above these rules, and WebKit will not resolve a
+   container *by name* across that — measured in all three: Chromium and Gecko
+   find `@container pane` from in here, WebKit finds nothing and silently
+   applies none of this, which in the app's own chrome is every pane. Unnamed,
+   the nearest ancestor container is found by all three. The pane keeps its
+   name for the sake of whoever reads it; nothing may declare a container
+   between there and here, or this would bind to that instead. */
+@container (width < 380px) {
   :host {
     gap: 4px;
-    --detail: none;
-    --dot-gap: 0;
+  }
+
+  .name,
+  .version,
+  .status .label {
+    display: none;
+  }
+
+  .status::before {
+    margin-right: 0;
   }
 }
