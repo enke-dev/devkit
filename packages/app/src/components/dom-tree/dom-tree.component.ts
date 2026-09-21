@@ -1,4 +1,5 @@
 import '../icon-button/icon-button.component.js';
+import '../tabs/tabs.component.js';
 import '@phosphor-icons/webcomponents/PhCaretDown';
 import '@phosphor-icons/webcomponents/PhCaretRight';
 import '@phosphor-icons/webcomponents/PhMagnifyingGlass';
@@ -13,6 +14,7 @@ import { ariaBoolean } from '../../utils/aria.utils.js';
 import { DevkitElement } from '../../utils/base.utils.js';
 import type { DomRow, DomTree } from '../../utils/dom.utils.js';
 import { labelOf, rowIndexOf, rowsOf } from '../../utils/dom.utils.js';
+import type { TabDefinition } from '../tabs/tabs.component.js';
 import styles from './dom-tree.component.css';
 
 /**
@@ -231,20 +233,16 @@ export class DomTreeComponent extends DevkitElement.withStyles(styles) {
 
     return html`
       <div class="controls">
-        <div class="engines" role="radiogroup" aria-label="Tree engine">
-          ${this.engines.map(
-            engine => html`
-              <button
-                type="button"
-                role="radio"
-                aria-checked=${ariaBoolean(engine === this.tree.engine)}
-                @click=${() => this.emit('devkit-dom-engine', engine)}
-              >
-                ${ENGINE_LABELS[engine]}
-              </button>
-            `
-          )}
-        </div>
+        <devkit-tabs
+          .tabs=${this.engines.map((engine): TabDefinition => ({
+            id: engine,
+            label: ENGINE_LABELS[engine],
+          }))}
+          .selected=${this.tree.engine}
+          label="Tree engine"
+          @devkit-tab=${(event: CustomEvent<string>) =>
+            this.emit('devkit-dom-engine', event.detail as Engine)}
+        ></devkit-tabs>
         <label class="search">
           <ph-magnifying-glass></ph-magnifying-glass>
           <input

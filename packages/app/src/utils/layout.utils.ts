@@ -132,3 +132,41 @@ export function storeInspectorSize(size: number): void {
     // A blocked store costs the preference, not the layout.
   }
 }
+
+/**
+ * How tall the tree is inside the Elements panel, kept across restarts.
+ *
+ * Null until somebody drags it, which is not the same as a number: an untouched
+ * split takes its share of whatever height the drawer has, and a remembered one
+ * is a measurement. Seeding it with a number instead would fix the tree at a
+ * bottom drawer's height the first time the inspector was ever opened at the
+ * side.
+ */
+const TREE_SIZE_KEY = 'devkit.treeSize';
+
+/**
+ * How little either half of the Elements panel may be squeezed to.
+ *
+ * Enough rows to still be a tree, and enough of the table below to still be a
+ * comparison. The bound on the drag rather than a size anything is set to.
+ */
+export const MIN_TREE = 120;
+export const MIN_DETAILS = 120;
+
+export function storedTreeSize(): number | null {
+  try {
+    const stored = localStorage.getItem(TREE_SIZE_KEY);
+    const size = Number(stored);
+    return stored !== null && Number.isFinite(size) && size >= MIN_TREE ? size : null;
+  } catch {
+    return null;
+  }
+}
+
+export function storeTreeSize(size: number): void {
+  try {
+    localStorage.setItem(TREE_SIZE_KEY, String(Math.round(size)));
+  } catch {
+    // A blocked store costs the preference, not the layout.
+  }
+}

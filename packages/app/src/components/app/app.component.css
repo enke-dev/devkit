@@ -1,14 +1,5 @@
 :host {
   --divider: 1px;
-  /* How far either side of the line you may take hold of it.
-   *
-   * The same either way: one that reaches further in one direction than the
-   * other is one you have to aim at. Small, because a resize edge is an easy
-   * target for its size — you can only miss it on one axis, and you are
-   * already moving towards it. Measured against the tools this sits beside,
-   * whose whole draggable strip is six pixels in Chrome's developer tools and
-   * four in VS Code, seven is already generous. */
-  --divider-grip: 3px;
   --inspector-size: 280px;
 
   display: grid;
@@ -81,55 +72,6 @@ devkit-app-navbar {
 :host([inspecting][dock='left']) devkit-inspector {
   grid-row: 2;
   grid-column: 1;
-}
-
-/* Dividers --------------------------------------------------------------- */
-
-/* One pixel of ink, like every other edge in the app.
- *
- * What you have to hit to drag it is not one pixel: the pseudo-element reaches
- * `--divider-grip` either side, so the target is seven pixels across while
- * the line stays at one. Hovering that reach counts as hovering the divider — a
- * pseudo-element is part of its element for both hit-testing and `:hover` — so
- * the line lights up from anywhere in the grip rather than only from directly
- * on top of it.
- *
- * It covers the outermost pixels of whatever it sits between, so the page is
- * not clickable quite to the edge of a pane. Cheap at this size, and cheaper
- * still because closing the drawer gives those pixels straight back.
- */
-.divider {
-  position: relative;
-  /* Above the pane and the drawer, or the grip would be the one covered. */
-  z-index: 4;
-  background: var(--border);
-  touch-action: none;
-}
-
-.divider::after {
-  position: absolute;
-  content: '';
-}
-
-.divider[aria-orientation='vertical'] {
-  cursor: col-resize;
-}
-
-.divider[aria-orientation='vertical']::after {
-  inset: 0 calc(var(--divider-grip) * -1);
-}
-
-.divider[aria-orientation='horizontal'] {
-  cursor: row-resize;
-}
-
-.divider[aria-orientation='horizontal']::after {
-  inset: calc(var(--divider-grip) * -1) 0;
-}
-
-.divider:hover,
-.divider:active {
-  background: var(--accent);
 }
 
 /* Implicit tracks rather than a fixed three: the panes are however many engines

@@ -7,33 +7,16 @@
   font-size: 11px;
 }
 
+/* Stretched rather than centred, so the tabs reach the bar's own rule and
+   their mark can sit on it. Everything else in the bar is centred back. */
 .controls {
   display: flex;
   gap: 6px;
-  align-items: center;
-  padding: 4px 6px;
+  align-items: stretch;
+  height: 26px;
+  padding: 0 6px;
   border-bottom: 1px solid var(--border);
   font-family: inherit;
-}
-
-.engines {
-  display: flex;
-  gap: 2px;
-}
-
-.engines button {
-  padding: 2px 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  cursor: pointer;
-}
-
-.engines button[aria-checked='true'] {
-  background: color-mix(in srgb, var(--text) 8%, transparent);
-  color: var(--text);
 }
 
 .search {
@@ -41,6 +24,7 @@
   flex: 1;
   gap: 4px;
   align-items: center;
+  align-self: center;
   min-width: 0;
   color: var(--text-dim);
 }
@@ -62,6 +46,7 @@
 }
 
 .matches {
+  align-self: center;
   color: var(--text-dim);
   white-space: nowrap;
 }

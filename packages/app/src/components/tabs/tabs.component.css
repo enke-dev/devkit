@@ -1,0 +1,46 @@
+/* Stretched by default, because the mark depends on it: the underline sits on
+   the container's own rule, and a row that only came down as far as its text
+   would leave the mark floating above the line it is meant to be part of. */
+:host {
+  display: flex;
+  align-self: stretch;
+}
+
+[role='tablist'] {
+  display: flex;
+  gap: 2px;
+}
+
+button {
+  position: relative;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button:hover {
+  color: var(--text);
+}
+
+button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -2px;
+}
+
+button[aria-selected='true'] {
+  color: var(--text);
+}
+
+/* Sitting a pixel low, so it covers the container's rule rather than resting on
+   top of it — the mark and the line are one edge, not two. */
+button[aria-selected='true']::after {
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 2px;
+  background: var(--accent);
+  content: '';
+}

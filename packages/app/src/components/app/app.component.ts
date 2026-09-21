@@ -1,4 +1,5 @@
 import '../app-navbar/app-navbar.component.js';
+import '../divider/divider.component.js';
 import '../inspector/inspector.component.js';
 import '../pane/pane.component.js';
 
@@ -58,12 +59,13 @@ import {
   storeInspectorSize,
   storeSplit,
 } from '../../utils/layout.utils.js';
-import { clamp, startDrag } from '../../utils/resize.utils.js';
+import { clamp } from '../../utils/resize.utils.js';
 import * as session from '../../utils/session.utils.js';
 import { isAppShortcut, match } from '../../utils/shortcuts.utils.js';
 import type { AvailableUpdate } from '../../utils/update.utils.js';
 import { availableUpdate } from '../../utils/update.utils.js';
 import type { AppNavbarComponent } from '../app-navbar/app-navbar.component.js';
+import type { DividerMove } from '../divider/divider.component.js';
 import type { PaneComponent } from '../pane/pane.component.js';
 import { hostColorScheme } from '../pane/pane.utils.js';
 import styles from './app.component.css';
@@ -919,27 +921,32 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   // -------------------------------------------------------------------------
 
   /**
+   * What the drawer's edge was at when its drag began, and how far it may go.
+   *
+   * Taken once, at the start: measuring on every movement would read a host
+   * that the previous movement had already resized, and the drag would chase
+   * its own tail.
+   */
+  #inspectorDrag = { from: 0, most: 0 };
+
+  private beginInspectorDrag(): void {
+    const host = this.getBoundingClientRect();
+    this.#inspectorDrag = {
+      from: this.inspectorSize,
+      most: (this.dock === 'bottom' ? host.height : host.width) - MIN_PANE,
+    };
+  }
+
+  /**
    * Drag the drawer's edge.
    *
    * Which direction makes it bigger depends on which edge it is against, which
    * is the only thing the three docked placements do differently here.
    */
-  private startInspectorDrag(event: PointerEvent): void {
-    const start = this.inspectorSize;
-    const dock = this.dock;
-    const host = this.getBoundingClientRect();
-    const most = (dock === 'bottom' ? host.height : host.width) - MIN_PANE;
-
-    startDrag(event, {
-      move: (deltaX, deltaY) => {
-        const grown = dock === 'bottom' ? -deltaY : dock === 'right' ? -deltaX : deltaX;
-        this.inspectorSize = clamp(start + grown, MIN_INSPECTOR, most);
-      },
-      end: () => {
-        storeInspectorSize(this.inspectorSize);
-        this.settleNow();
-      },
-    });
+  private moveInspectorDivider({ deltaX, deltaY }: DividerMove): void {
+    const { from, most } = this.#inspectorDrag;
+    const grown = this.dock === 'bottom' ? -deltaY : this.dock === 'right' ? -deltaX : deltaX;
+    this.inspectorSize = clamp(from + grown, MIN_INSPECTOR, most);
   }
 
   /**
@@ -1924,12 +1931,18 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       ${when(
         this.inspecting && this.dock !== 'detached',
         () => html`
-          <div
-            class="divider inspector-divider"
-            role="separator"
-            aria-orientation=${this.dock === 'bottom' ? 'horizontal' : 'vertical'}
-            @pointerdown=${(event: PointerEvent) => this.startInspectorDrag(event)}
-          ></div>
+          <devkit-divider
+            class="inspector-divider"
+            label="Resize the inspector"
+            orientation=${this.dock === 'bottom' ? 'horizontal' : 'vertical'}
+            @devkit-divider-start=${() => this.beginInspectorDrag()}
+            @devkit-divider-move=${(event: CustomEvent<DividerMove>) =>
+              this.moveInspectorDivider(event.detail)}
+            @devkit-divider-end=${() => {
+              storeInspectorSize(this.inspectorSize);
+              this.settleNow();
+            }}
+          ></devkit-divider>
           <devkit-inspector
             .answers=${this.answers}
             .messages=${this.messages}

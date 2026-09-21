@@ -1,0 +1,71 @@
+:host {
+  /* How far either side of the line you may take hold of it.
+   *
+   * The same either way: one that reaches further in one direction than the
+   * other is one you have to aim at. Small, because a resize edge is an easy
+   * target for its size — you can only miss it on one axis, and you are
+   * already moving towards it. Measured against the tools this sits beside,
+   * whose whole draggable strip is six pixels in Chrome's developer tools and
+   * four in VS Code, seven is already generous.
+   *
+   * Stated here rather than inherited, so a divider works wherever it is put —
+   * including the detached window, which has none of the app's layout around
+   * it. */
+  --grip: 3px;
+
+  display: block;
+  /* Above whatever it sits between, or the reach would be the thing covered. */
+  z-index: 4;
+  /* Never given away by a flex parent: it is one pixel, and a line that can be
+     shrunk is a line that disappears. */
+  flex: none;
+}
+
+/* A thickness of its own, on the axis it is thin along only.
+ *
+ * A grid track gives one a size; a flex column does not, and the host collapsed
+ * to nothing there — leaving a line that could still be dragged, by the grip's
+ * reach alone, but could not be seen. So the line carries its own single pixel
+ * and a track that states one simply agrees with it. */
+:host([orientation='horizontal']) {
+  height: 1px;
+}
+
+:host([orientation='vertical']) {
+  width: 1px;
+}
+
+.grip {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--border);
+  /* Or a drag on a touchpad scrolls whatever is behind it instead. */
+  touch-action: none;
+}
+
+.grip::after {
+  position: absolute;
+  content: '';
+}
+
+:host([orientation='vertical']) .grip {
+  cursor: col-resize;
+}
+
+:host([orientation='vertical']) .grip::after {
+  inset: 0 calc(var(--grip) * -1);
+}
+
+:host([orientation='horizontal']) .grip {
+  cursor: row-resize;
+}
+
+:host([orientation='horizontal']) .grip::after {
+  inset: calc(var(--grip) * -1) 0;
+}
+
+.grip:hover,
+.grip:active {
+  background: var(--accent);
+}

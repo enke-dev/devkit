@@ -1,6 +1,8 @@
+import '../divider/divider.component.js';
 import '../dom-tree/dom-tree.component.js';
 import '../icon-button/icon-button.component.js';
 import '../popover/popover.component.js';
+import '../tabs/tabs.component.js';
 import '@phosphor-icons/webcomponents/PhBrowsers';
 import '@phosphor-icons/webcomponents/PhCaretDown';
 import '@phosphor-icons/webcomponents/PhCheck';
@@ -36,11 +38,26 @@ import {
   timeOf,
 } from '../../utils/inspect.utils.js';
 import type { InspectorDock } from '../../utils/layout.utils.js';
-import { INSPECTOR_DOCKS } from '../../utils/layout.utils.js';
+import {
+  INSPECTOR_DOCKS,
+  MIN_DETAILS,
+  MIN_TREE,
+  storedTreeSize,
+  storeTreeSize,
+} from '../../utils/layout.utils.js';
+import { clamp } from '../../utils/resize.utils.js';
+import type { DividerMove } from '../divider/divider.component.js';
 import type { PopoverComponent } from '../popover/popover.component.js';
+import type { TabDefinition } from '../tabs/tabs.component.js';
 import styles from './inspector.component.css';
 
 type Tab = 'elements' | 'console';
+
+/** The drawer's two panels, in the order they are offered. */
+const TABS: TabDefinition[] = [
+  { id: 'elements', label: 'Elements' },
+  { id: 'console', label: 'Console' },
+];
 
 /** Each placement, named as the place rather than as the move to it. */
 const DOCK_LABELS: Record<InspectorDock, string> = {
@@ -141,6 +158,21 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
   /** Mirrors the placement flyout, so its trigger can show that it is open. */
   @state() private accessor dockOpen = false;
 
+  /**
+   * How tall the tree is, once somebody has said.
+   *
+   * Null until then, and null is a real value rather than a missing one: an
+   * untouched split takes its share of whatever height the drawer has, which is
+   * the right answer at every dock. A number is a measurement somebody made,
+   * and is kept.
+   *
+   * Owned here rather than by the app, unlike the drawer's own size. This is a
+   * layout inside the drawer, and the drawer is rendered in two places — put it
+   * in the app and the detached window would have to be sent it, for a number
+   * nothing outside these two panels has any use for.
+   */
+  @state() private accessor treeSize: number | null = storedTreeSize();
+
   /** Which levels are shown; all of them until somebody says otherwise. */
   @state() private accessor levels: ConsoleLevel[] = [...CONSOLE_LEVELS];
 
@@ -153,6 +185,18 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
 
   @query('devkit-popover.dock')
   private accessor dockPopover!: PopoverComponent;
+
+  @query('.elements')
+  private accessor elements!: HTMLElement;
+
+  /**
+   * What the split was at when its drag began, and how far it may go.
+   *
+   * Measured once, at the start. The tree's height is what the drag is
+   * changing, so reading it again on every movement would be reading back the
+   * previous movement rather than the pointer.
+   */
+  #splitDrag = { from: 0, most: 0 };
 
   private emit(name: string, detail?: unknown): void {
     this.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
@@ -168,27 +212,13 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
   override render() {
     return html`
       <header>
-        <nav class="tabs" role="tablist">
-          ${(
-            [
-              ['elements', 'Elements'],
-              ['console', 'Console'],
-            ] as [Tab, string][]
-          ).map(
-            ([tab, label]) => html`
-              <button
-                type="button"
-                class="tab"
-                role="tab"
-                id=${`tab-${tab}`}
-                aria-selected=${ariaBoolean(this.tab === tab)}
-                @click=${() => this.emit('devkit-inspector-tab', tab)}
-              >
-                ${label}
-              </button>
-            `
-          )}
-        </nav>
+        <devkit-tabs
+          .tabs=${TABS}
+          .selected=${this.tab}
+          label="Inspector panels"
+          @devkit-tab=${(event: CustomEvent<string>) =>
+            this.emit('devkit-inspector-tab', event.detail as Tab)}
+        ></devkit-tabs>
         <devkit-icon-button
           ?active=${this.picking}
           label=${this.picking ? 'Stop following the pointer' : 'Pick an element'}
@@ -273,7 +303,10 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
    */
   private renderElements() {
     return html`
-      <div class="elements">
+      <div
+        class="elements"
+        style=${this.treeSize === null ? nothing : `--tree-size: ${Math.round(this.treeSize)}px`}
+      >
         ${
           this.tree
             ? html`
@@ -286,9 +319,41 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
               `
             : html`<p class="hint">Loading the tree…</p>`
         }
+        <devkit-divider
+          orientation="horizontal"
+          label="Resize the tree"
+          @devkit-divider-start=${() => this.beginSplitDrag()}
+          @devkit-divider-move=${(event: CustomEvent<DividerMove>) => this.moveSplit(event.detail)}
+          @devkit-divider-end=${() => {
+            if (this.treeSize !== null) {
+              storeTreeSize(this.treeSize);
+            }
+          }}
+        ></devkit-divider>
         ${this.renderDetails()}
       </div>
     `;
+  }
+
+  /**
+   * Take the split's measurements before it moves.
+   *
+   * The tree's own height rather than `treeSize`, because until the first drag
+   * there is no `treeSize` — the split is a share of the panel, and what the
+   * drag starts from is whatever that came out as.
+   */
+  private beginSplitDrag(): void {
+    const panel = this.elements;
+    const tree = panel?.firstElementChild;
+    this.#splitDrag = {
+      from: tree?.getBoundingClientRect().height ?? MIN_TREE,
+      most: (panel?.getBoundingClientRect().height ?? 0) - MIN_DETAILS,
+    };
+  }
+
+  private moveSplit({ deltaY }: DividerMove): void {
+    const { from, most } = this.#splitDrag;
+    this.treeSize = clamp(from + deltaY, MIN_TREE, most);
   }
 
   private renderDetails() {

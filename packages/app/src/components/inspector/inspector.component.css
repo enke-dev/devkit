@@ -27,59 +27,40 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
-/* Tabs rather than buttons. The drawer has two panels and these say which of
-   them you are looking at — a place you are, not a thing to press — so the
-   one you are on is marked along the header's own rule instead of being given
-   a plate of its own. */
-.tabs {
-  display: flex;
+/* The tabs take the header's spare width, so the buttons beside them stay at
+   its far end. */
+devkit-tabs {
   flex: 1;
-  align-self: stretch;
-  gap: 2px;
 }
 
-.tab {
-  position: relative;
-  padding: 0 8px;
-  border: 0;
-  background: transparent;
-  color: var(--text-dim);
-  font: inherit;
-  cursor: pointer;
-}
-
-.tab:hover {
-  color: var(--text);
-}
-
-.tab[aria-selected='true'] {
-  color: var(--text);
-}
-
-/* Sitting a pixel low, so it covers the header's rule rather than resting on
-   top of it — the mark and the line are one edge, not two. */
-.tab[aria-selected='true']::after {
-  position: absolute;
-  inset: auto 0 -1px;
-  height: 2px;
-  background: var(--accent);
-  content: '';
-}
-
-/* The tree above, what the engines say about its selection below. The tree
-   gets a share rather than a fixed height because the drawer is resizable, and
-   a fixed one would leave it a sliver in a short dock and acres in a tall one.
-   Both halves scroll on their own: they are different lists and reading one
-   should not move the other. */
+/* The tree above, what the engines say about its selection below, and a line
+   between them that can be taken hold of.
+ *
+ * Flex rather than grid, for what happens when there is not enough room: the
+ * tree is allowed to shrink below the height it was dragged to, floored by its
+ * own minimum, so narrowing the drawer squeezes the tree before it starts
+ * squeezing the table. A grid track would have held the tree at its size and
+ * pushed the table out of the panel instead.
+ *
+ * Until somebody drags it the tree takes a share, which is the right answer at
+ * every dock — a measurement would have fixed a bottom drawer's height onto a
+ * side one. Both halves scroll on their own: they are different lists, and
+ * reading one should not move the other. */
 .elements {
-  display: grid;
-  grid-template-rows: minmax(120px, 40%) 1fr;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
 }
 
 .elements > devkit-dom-tree {
-  min-height: 0;
-  border-bottom: 1px solid var(--border);
+  flex: 0 1 var(--tree-size, 40%);
+  min-height: 120px;
+}
+
+.elements > .body,
+.elements > .hint {
+  flex: 1 1 0;
+  min-height: 120px;
 }
 
 .body {
