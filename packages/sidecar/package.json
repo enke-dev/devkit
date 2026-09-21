@@ -15,6 +15,7 @@
     "verify:inspect": "node scripts/verify-inspect.ts",
     "verify:tree": "node scripts/verify-tree.ts",
     "verify:blocked": "node scripts/verify-blocked.ts",
+    "verify:sessions": "node scripts/verify-sessions.ts",
     "lint": "bun run --parallel lint:*",
     "lint:prettier": "bun --bun prettier --config prettier.config.ts --check .",
     "lint:eslint": "bun --bun eslint --config eslint.config.ts",

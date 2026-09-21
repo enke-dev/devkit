@@ -32,7 +32,8 @@
     "verify:inspect": "bun run --filter @devkit/sidecar verify:inspect",
     "verify:tree": "bun run --filter @devkit/sidecar verify:tree",
     "verify:reveal": "bun run --filter @devkit/app verify:reveal",
-    "verify:blocked": "bun run --filter @devkit/sidecar verify:blocked"
+    "verify:blocked": "bun run --filter @devkit/sidecar verify:blocked",
+    "verify:sessions": "bun run --filter @devkit/sidecar verify:sessions"
   },
   "devDependencies": {
     "@awmottaz/prettier-plugin-void-html": "2.3.0",
