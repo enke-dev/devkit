@@ -26,8 +26,8 @@ where a number appears, it came from running the thing.
 
 The Rust layer deliberately knows almost nothing about the protocol: it owns the sidecar's lifetime
 and pipes, and forwards payloads verbatim. The message shapes live in one place,
-[`packages/protocol/src/index.ts`](packages/protocol/src/index.ts), with the handful of names Rust
-needs mirrored in [`src-tauri/src/protocol.rs`](src-tauri/src/protocol.rs).
+[`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts), with the handful of names Rust
+needs mirrored in [`src-tauri/src/protocol.rs`](../src-tauri/src/protocol.rs).
 
 ## Decisions worth knowing
 
@@ -101,7 +101,7 @@ claim on Alt has to be revisited. On Linux, note that many window managers take 
 themselves.
 
 The platforms differ in more than the modifier, which is why
-[`shortcuts.utils.ts`](packages/app/src/utils/shortcuts.utils.ts) binds per platform rather than
+[`shortcuts.utils.ts`](../packages/app/src/utils/shortcuts.utils.ts) binds per platform rather than
 accepting either modifier everywhere. `Ctrl`+`←` on Windows moves the caret by word, so taking it
 would steal a key the page should get; and `Meta` there is the Super key, so answering to it means
 answering to the desktop's own shortcuts.
@@ -242,18 +242,10 @@ blurry while the other two looked sharp.
 
 ### What this replaced
 
-Polling `page.screenshot()` in a loop, which is what the panes used to do. It was far worse than it
-looked, because WebKit repaints the whole page for every screenshot — a 200x200 clip costs the same
-as a full viewport.
-
-Measured on en.wikipedia.org/wiki/Berlin, scrolling, three panes at `deviceScaleFactor: 2`:
-
-| Capture            | Engines + sidecar CPU |
-| ------------------ | --------------------- |
-| screenshot polling | ~330%                 |
-| push screencast    | **~55%**              |
-
-Single engine, same page: WebKit went from 9.2fps at 111% CPU to 19.2fps at 30%.
+Polling `page.screenshot()` in a loop. WebKit repaints the whole page for every screenshot — a
+200x200 clip costs the same as a full viewport — so the cost was hidden. Measured scrolling three
+panes at `deviceScaleFactor: 2`: ~330% CPU polling against ~55% pushing. Single engine: WebKit went
+from 9.2fps at 111% CPU to 19.2fps at 30%.
 
 ### A dead pane comes back
 
@@ -278,10 +270,6 @@ each engine delivers — frame rate and real frame size, read from the JPEG head
 metadata — and checks that a page still renders at device scale after navigating, which Gecko was
 once seen stopping doing.
 
-This used to be `verify:patch`, guarding a patched `playwright-core` that exposed the screencast
-before it was public API. The patch is gone: `page.screencast` has been public since Playwright 1.59,
-and measurement showed the two paths deliver the same frames at the same rate.
-
 `bun run verify:recovery` covers the other invisible failure: a pane that stops. It kills an engine
 outright — no clean shutdown, no chance to say goodbye — and requires that the pane reports itself
 closed exactly once and comes back when restarted. A pane producing no frames looks exactly like a
@@ -303,14 +291,14 @@ JSON, so the image would have to be base64 — a third larger, plus a JSON parse
 kilobytes per frame at the other end. The socket takes a 16-byte header and the bytes as they are.
 The backend offers the port and a token through the sidecar's environment, and a connection that
 does not present the token is dropped. See
-[`src-tauri/src/frame_channel.rs`](src-tauri/src/frame_channel.rs) and
-[`packages/sidecar/src/frame-channel.ts`](packages/sidecar/src/frame-channel.ts).
+[`src-tauri/src/frame_channel.rs`](../src-tauri/src/frame_channel.rs) and
+[`packages/sidecar/src/frame-channel.ts`](../packages/sidecar/src/frame-channel.ts).
 
 **Backend to webview** goes over the `devkit-frame` URI scheme. The event says only that a frame
 exists; the image element fetches the bytes, so they never become a JavaScript string and decoding
 happens off the main thread. Sending frames as base64 inside events here was what collapsed the
 pipeline to roughly 8/20/2fps with three panes, backpressure dragging the sidecar's production down
-with it. See [`src-tauri/src/frames.rs`](src-tauri/src/frames.rs).
+with it. See [`src-tauri/src/frames.rs`](../src-tauri/src/frames.rs).
 
 Measured with three panes scrolling at device scale: 48 frames/s carrying 4.4MB/s of JPEG, which as
 base64 would have been 5.9MB/s of text to parse.
@@ -330,14 +318,14 @@ Because it is a launch argument, a DPR change restarts that pane rather than jus
 Diagnostics never use `eprintln!`. It panics when the write fails, and a panic inside a Tauri command
 aborts the process — so with stderr going to a terminal that has since gone away, a diagnostic line
 becomes a crash. Observed once, as a report whose entire stack was `debug_log` → `__eprint` →
-`panic` → `abort`. [`note!`](src-tauri/src/notes.rs) writes and ignores a failed write: losing a line
+`panic` → `abort`. [`note!`](../src-tauri/src/notes.rs) writes and ignores a failed write: losing a line
 costs nothing, losing the app loses three browsers and whatever was being compared.
 
 `DEVKIT_DEBUG_FRAMES=1 bun run dev` prints, once a second, how many frames the sidecar produced (and
 dropped under backpressure) and how many the frontend received. The two numbers disagreeing is the
 signal that the transport, not the engines, is the constraint.
 
-## Introspection: one point, three answers
+## Introspection: one element, three answers
 
 The panes already share a viewport and already mirror input in viewport pixels, so a pair of
 coordinates is the only cross-engine identity an element needs. `document.elementFromPoint(x, y)`
@@ -355,6 +343,45 @@ siblings, and the boundary each step crossed, walked down from the document. Tha
 selected row be described by all three engines at once, and it is deliberately built from neither id
 nor class — those are what the engines are being compared on, and an identity that moved when a
 class did would call one element two.
+
+### The tree
+
+Rows are elements, text, comments — and the two boundaries, because an element whose children
+silently come from a shadow root or another document is a tree nobody can reason about. Whitespace
+between tags is dropped: it is most of the text nodes on a formatted page and never what anybody
+opened the tree to find. Generated content has no node, so `::before` and `::after` are reported on
+the element that owns them, decided from the computed `content` — worth the two extra reads, because
+it is a real source of engine disagreement.
+
+Rows are **windowed**: the tree is flattened to a list, the scroller gets a spacer the height of the
+whole list, and only the slice under the viewport exists. A real page is tens of thousands of nodes,
+and nested markup costs the whole open subtree whether or not any of it is on screen.
+
+Levels arrive a few at a time rather than one, since opening a twisty is nearly always followed by
+opening one inside it. Every node reports its child count whether or not its children were sent, so
+a row knows to draw a twisty without being told what is behind it.
+
+**Watching is polled, not pushed.** A `MutationObserver` sits under each expanded node and records
+are folded into statements of what is now true — fifty insertions into one list are fifty records
+and one fact — which the sidecar drains on a 250ms timer. Pushing would mean `exposeBinding`, a
+second function of ours on the page's global object for the life of the context, against a walker
+whose whole bargain is one non-enumerable property. The timer exists only while something is
+expanded, so a session that never opens the tree pays nothing.
+
+Past a couple of hundred folded changes the pane stops describing and says **invalidate** instead:
+applying hundreds of edits to arrive at a tree you could have refetched is slower and pointless. The
+same event covers a replaced document, and the pane cannot tell those apart — so the app offers the
+selection's handles back with the rebuild. A page that merely churned still has those nodes and
+comes back open where it was; one that navigated refuses them, and the refusal falls back to a plain
+tree.
+
+Opening the tree to an element — from the picker, from a search, from changing engine — is the part
+that has been hardest to get right, because it is several round trips racing each other: a pick can
+beat the tree it is meant to open, a reveal can outlive the tree it was recorded against, and a
+rebuild can land underneath one. `bun run verify:reveal` drives the real app with the bridge stubbed
+so those orderings are forced rather than waited for.
+
+### The walker
 
 Everything goes through `page.evaluate`, which means it works identically on all three engines and
 adds no dependency. The engines' own developer tools stay behind the existing detach pop-out; this
@@ -387,6 +414,8 @@ then shows as though the page had produced it. So the walker judges the origin f
 cross-origin after loading is still touched once; an advert that was cross-origin from the start,
 which is the common case, is not touched at all.
 
+### What gets compared
+
 **Computed styles are compared over a curated, normalised set.** A raw `getComputedStyle`
 comparison is unreadable: the engines expose different property counts, expand shorthands
 differently, and disagree cosmetically about values nobody asked after. `INSPECTED_STYLE_GROUPS` in
@@ -401,6 +430,8 @@ disagreements about the used value, which is the thing being measured.
 comes from a CDN has nothing to show. Computed styles are the panel that always works; this one
 reports how many sheets it could not open rather than presenting a short list as the whole truth,
 because an empty rules panel otherwise reads as "this element is unstyled".
+
+### Console
 
 **Console is folded before it is queued.** `page.on('console')` and `page.on('pageerror')` stream
 from the moment a pane comes up — a console switched on after the page loaded has already missed
@@ -430,11 +461,17 @@ the same page:
 WebKit emits nothing for `console.count`. Anything unlisted maps to `kind: 'other'` and renders as
 a plain line rather than being dropped.
 
+Levels and engines are filtered by choosing them, not by a severity floor: the thing usually wanted
+is the warnings and errors *without* the hundreds of ordinary lines between them, which a floor
+cannot express.
+
 **Answers are events, not acks.** `ack` is terminal and carries no payload, so `inspect` and
 `evaluate` are answered by one event per pane carrying the command's `id` — the only events besides
 `ack` that do. Three panes answer independently and at different speeds, which beats one ack
 holding three results and waiting for the slowest; a pane that is not running simply never answers,
 so the app counts answers against the panes it asked.
+
+### Selection
 
 **A selection outlives the point that made it.** Clicking while the picker is on ends the mode and
 keeps the element, and the click is swallowed rather than passed to the page — following a link
@@ -459,17 +496,17 @@ So `applyInput` measures the selection immediately after applying anything that 
 — a wheel, a keystroke, a release — which puts the measurement after the scroll and before the next
 capture.
 
-Two things keep that off the hot path, and both were learnt by putting it on there. It is **not
-awaited**: the ack for an input is what paces the next one, so anything waited for inside
-`applyInput` is added to the latency of every scroll. And it is **skipped entirely unless the pane
-has a selection**, which the pane tracks itself rather than asking the page — asking costs exactly
-the round trip being avoided. Without those, scrolling in a session where nobody had opened the
-inspector paid an evaluate per pane per wheel event, with the ack waiting behind all three; the
-panes lagged, and Gecko stopped reaching `stream` at all, because `MOTION_FRAMES` wants three
-frames inside 250ms and the throttled wheel could no longer produce them. It arrives as a `selection` event, sent only when the
-element actually moved, in the same spirit as `cursor`. Pointer movement is deliberately not in that
-list: it moves nothing, and asking three engines about every mouse move is the cost the whole
-arrangement exists to avoid.
+Two rules keep that off the hot path, both learnt by breaking them. It is **not awaited** — the ack
+for an input paces the next one, so anything waited for there is added to every scroll. And it is
+**skipped unless the pane has a selection**, which the pane tracks itself rather than asking the
+page, since asking costs the round trip being avoided. Without both, a session where nobody had
+opened the inspector still paid an evaluate per pane per wheel event, and Gecko stopped reaching
+`stream` at all: `MOTION_FRAMES` wants three frames inside 250ms and the throttled wheel could no
+longer produce them.
+
+It arrives as a `selection` event, sent only when the element actually moved. Pointer movement is
+deliberately not on the list of inputs that trigger it: it moves nothing, and asking three engines
+about every mouse move is the cost the arrangement exists to avoid.
 
 The `remeasure` command stays as a backstop, trailing 250ms after the input stops, for movement that
 arrives without further input — a smooth scroll coasting, a layout settling late.
@@ -479,14 +516,17 @@ arrives without further input — a smooth scroll coasting, a layout settling la
 left the document", which is the highlight's cue to go. Confusing them would announce a vanished
 selection on every scroll of every page.
 
-The alternative — injecting the highlight into the page so it is rasterised with the content — was
-considered and rejected. The top layer would keep it out of normal layout, and `pointer-events:
-none` would keep it out of `elementFromPoint`, but an injected node still changes the document:
-every `:last-child`, `:nth-child`, `+` and `~` in the page re-evaluates, which silently alters the
-computed styles this feature exists to compare. It would also land in the captured frames, which are
-the evidence. Chromium's `Overlay.highlightNode` does exactly the right thing outside the DOM, and
-has no counterpart in Gecko or WebKit through Playwright — one pane right and two bare is the
-asymmetry the app exists to avoid.
+Closing the drawer says `deselect`, and it has to: a pane holding a selection goes on measuring it
+after every input and volunteering where it got to. That is an evaluate per pane per scroll for a
+highlight nobody can see, and the volunteered event drew the old highlight back the moment the
+drawer was reopened.
+
+Injecting the highlight into the page instead was rejected: an injected node re-evaluates every
+`:last-child`, `:nth-child`, `+` and `~` in the document, which silently alters the computed styles
+the feature exists to compare, and it would land in the captured frames, which are the evidence.
+Chromium's `Overlay.highlightNode` sits outside the DOM and does the right thing, but has no
+counterpart in Gecko or WebKit through Playwright — one pane right and two bare is the asymmetry
+this app exists to avoid.
 
 **Identity counts within the tag, not within the children.** The app decides whether one table can
 speak for all three panes by deriving an identity per engine from the breadcrumb and comparing
@@ -507,11 +547,19 @@ cap for a pane that never will, and a sample whose signature matches what is alr
 dropped rather than rendered. That second guard covers most samples: the pointer moves a few pixels
 within one element far more often than it crosses into another.
 
-**The drawer is the only thing that resizes.** Its edge is a real element rather than a grid gap,
-because a gap cannot be taken hold of, and it is a few pixels of hit area with a one-pixel line
-painted down the middle — the right amount of ink is the wrong amount of target. The size is kept
-across restarts and restored when the drawer is reopened, and moving the drawer resets it: a height
-dragged along the bottom is not a width down the side.
+### The drawer
+
+**The drawer resizes, and so does the split inside it.** Both edges are the same component: a real
+element rather than a grid gap, because a gap cannot be taken hold of, and a few pixels of hit area
+with a one-pixel line painted down the middle — the right amount of ink is the wrong amount of
+target. It reports movement and applies nothing, because what a drag means belongs to whatever is
+being divided.
+
+The drawer's size is kept across restarts, and moving the drawer resets it: a height dragged along
+the bottom is not a width down the side. The tree-against-details split is flexed rather than
+tracked, so shrinking the drawer squeezes the tree down to its floor before the table below it gives
+anything up. Untouched, it takes a share rather than a measurement — a remembered height would
+otherwise fix a bottom drawer's proportions onto a side one.
 
 The panes deliberately do not resize. They share one viewport, taken as the *smallest* pane's size
 so that every engine renders the same page — so dragging one pane wider would not give that engine
@@ -521,8 +569,7 @@ page it shows are the same thing.
 
 **The drawer has four places, offered all at once.** A window of its own, left, bottom or right,
 listed in a flyout with the current one marked — the row the developer tools everyone already knows
-put them in. It began as a button that cycled, which asked people to guess what came next and hid
-the rest of the choices while they did; they fit in a row, so they are all shown. It is a real choice rather than a preference, because the drawer and the panes compete for
+put them in. It is a real choice rather than a preference, because the drawer and the panes compete for
 the same screen: a tall page can spare a column, a wide one or three stacked panes can spare a row.
 The host grid places each piece explicitly rather than letting them flow, because the second column
 exists in only one of the arrangements. Moving the drawer resizes every pane, and they share one
@@ -588,7 +635,7 @@ flaky. `bun run prepare:sidecar` stages the local Node binary as the Tauri sidec
 (hardlinked, so it costs no disk space in development).
 
 ```sh
-bun run typecheck        # all packages
+bun run check            # typecheck, all packages
 bun run lint             # prettier --check and eslint, all packages
 bun run format           # the same two, writing
 bun run build:libs       # protocol + sidecar TypeScript
@@ -605,6 +652,18 @@ the app, which adds the HTML and web-component rules.
 Tauri resolves the `resources` entry at build time and refuses to build without it.
 
 The dev server runs on port 1430.
+
+Six behaviour checks run real engines, or the real app, rather than mocks. They are opt-in — nothing
+in `check` or `lint` starts a browser — and each is described where it matters above.
+
+```sh
+bun run verify:screencast  # what each engine actually delivers; run after a Playwright upgrade
+bun run verify:settle      # every pane ends on a sharp frame
+bun run verify:recovery    # a killed engine reports closed once and comes back
+bun run verify:inspect     # descent, translation, normalisation, the cursor probe
+bun run verify:tree        # handles, boundaries, identity chains, watching
+bun run verify:reveal      # the app's own reveal orderings, with the bridge stubbed
+```
 
 ## Packaging
 
@@ -649,7 +708,7 @@ fails without automation permission; `bun run tauri build --bundles app` skips i
 | ------------------- | ---------------------------------------------------------- |
 | `packages/protocol` | Wire protocol types and channel names, shared by both ends |
 | `packages/sidecar`  | Node + Playwright: engine lifecycle, capture, downloads    |
-| `packages/app`      | Frontend: toolbar, panes, frame rendering                  |
+| `packages/app`      | Frontend: toolbar, panes, frame rendering, inspector        |
 | `src-tauri`         | Rust: window, sidecar supervision, IPC relay               |
 | `scripts`           | Build-time helpers                                         |
 
@@ -660,5 +719,5 @@ fails without automation permission; `bun run tauri build --bundles app` skips i
 - **No code signing or notarisation.** macOS builds are unsigned, so the app is quarantined when
   downloaded rather than built locally.
 
-Deferred work lives in [`.claude/ideas/`](.claude/ideas/), one file per item, each recording what
+Deferred work lives in [`.claude/ideas/`](../.claude/ideas/), one file per item, each recording what
 the current behaviour is and what picking it up would involve.

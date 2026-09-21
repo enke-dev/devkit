@@ -28,9 +28,9 @@ for.
 
 ## The version that got built instead
 
-A comparison inspector, on what Playwright exposes *uniformly* across the three. Elements, console
-and evaluation are done and documented in
-[`docs/internals.md`](../../docs/internals.md#introspection-one-point-three-answers): one point,
+A comparison inspector, on what Playwright exposes *uniformly* across the three. A navigable DOM
+tree, the console and evaluation are done and documented in
+[`docs/internals.md`](../../docs/internals.md#introspection-one-element-three-answers): one element,
 three answers, with the rows the engines disagree about marked.
 
 ## What is left of this idea

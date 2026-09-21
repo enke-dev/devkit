@@ -66,14 +66,16 @@ racing through it.
 The inspector asks all three engines the same question at once, which is the thing no browser's own
 developer tools can do.
 
-**Elements.** Point at any pane and every engine is asked what is under that exact coordinate —
-the panes share a viewport, so the point means the same thing in all three. Computed styles line up
-in three columns with the rows they disagree about marked, and "only differences" hides the rest.
-It descends through open shadow roots and same-origin frames. When two engines resolve *different*
-elements at the same point, it says so instead of picking one.
+**Elements.** A DOM tree you can walk, search and keep open while the page changes under it — one
+engine's at a time, with shadow roots and same-origin frames as rows of their own. Select a row and
+every engine is asked about that same element: computed styles line up in three columns with the
+rows they disagree about marked, and "only differences" hides the rest. When an engine has no such
+element, it says so instead of picking one.
 
-Click to pick: that ends the follow-the-pointer mode and keeps the element selected, and the click
-does not reach the page. The highlight then follows its element as you scroll.
+Or point at any pane and every engine is asked what is under that exact coordinate — the panes share
+a viewport, so the point means the same thing in all three. Click to pick: that ends the
+follow-the-pointer mode, keeps the element selected and reveals it in the tree, and the click does
+not reach the page. The highlight then follows its element as you scroll.
 
 **Console.** One stream, not three: every line says which engine printed it, so a warning only
 Gecko produced is visible at a glance. Filter by severity, by engine, or by text.
