@@ -1070,6 +1070,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   }
 
   private clearCursors(): void {
+    const wasIn = this.#activeEngine;
     this.#activeEngine = null;
     this.#pointer = null;
     this.panes.forEach(pane => {
@@ -1077,6 +1078,24 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       pane.setCursorPressed(false);
       pane.active = false;
     });
+
+    // Only if the pointer was in a pane at all, because this runs on every
+    // movement along the window's edge and the pages should hear about the
+    // pointer leaving once.
+    if (wasIn === null) {
+      return;
+    }
+    // The pages are told as well, not just the panes. Until they are, the
+    // element the pointer left is still hovered and the engines still answer
+    // with its cursor — which is how a hand followed the pointer out of the
+    // pane it belonged to. Moving to (-1,-1) is how a pointer leaves; the
+    // shape that comes back for it is the arrow, and every pane takes it.
+    void send({
+      type: 'input',
+      engine: 'all',
+      event: { kind: 'mousemove', x: -1, y: -1 },
+      source: wasIn,
+    }).catch((error: unknown) => this.reportError(error));
   }
 
   // -------------------------------------------------------------------------

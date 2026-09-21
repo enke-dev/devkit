@@ -619,8 +619,12 @@ export const WALKER_SOURCE = `(() => {
 
   const cursorAt = (x, y) => {
     const found = resolve(x, y);
+    // Nothing at that point is an answer rather than a failure: it is what a
+    // pointer moved off the page finds, and the arrow is what the engine would
+    // be showing for it. Answering null instead said nothing had changed, so a
+    // pane kept whatever shape it was wearing when the pointer left it.
     if (!found) {
-      return null;
+      return 'default';
     }
     const { element, localX, localY } = found;
     const view = viewOf(element);

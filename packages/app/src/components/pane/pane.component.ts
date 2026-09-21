@@ -303,9 +303,6 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
    * the active pane actually shows, and the drawn one the other panes use.
    */
   setCursorShape(css: string): void {
-    // Set on the pane: nothing between it and the frame sets a cursor, so the
-    // image the pointer is actually over inherits it.
-    this.style.cursor = safeCursorCss(css);
     this.cursorCss = css;
   }
 
@@ -418,7 +415,11 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
           this.toggleColorScheme();
         }}
       ></devkit-pane-navbar>
-      <div class="surface">
+      <!-- The page's cursor belongs to the page, so it is worn by the surface
+           rather than by the whole pane: the header above it has controls of
+           its own, and they should look like controls whatever the page under
+           the pointer last asked for. -->
+      <div class="surface" style=${styleMap({ cursor: safeCursorCss(this.cursorCss) })}>
         <img alt="${label} rendering" decoding="async">
         ${this.status === 'missing' ? this.renderInstall(label) : nothing}
         ${this.detail ? html`<p class="detail">${this.detail}</p>` : nothing}

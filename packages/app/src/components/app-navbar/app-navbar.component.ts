@@ -117,6 +117,7 @@ export class AppNavbarComponent extends DevkitElement.withStyles(styles) {
       <devkit-address-bar .url=${this.url}></devkit-address-bar>
 
       <nav>
+        ${this.renderSplitToggle()}
         <devkit-icon-button
           ?active=${this.inspecting}
           label=${this.inspecting ? 'Hide the inspector' : 'Show the inspector'}
@@ -124,7 +125,6 @@ export class AppNavbarComponent extends DevkitElement.withStyles(styles) {
         >
           <ph-bug></ph-bug>
         </devkit-icon-button>
-        ${this.renderSplitToggle()}
         ${when(
           this.upToDate,
           () => html`
