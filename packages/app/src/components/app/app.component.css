@@ -1,15 +1,60 @@
 :host {
   display: grid;
   grid-template-rows: var(--toolbar-height) 1fr;
+  grid-template-columns: 1fr;
   height: 100%;
   overflow: hidden;
 }
 
-/* The drawer takes a row of its own rather than floating over the panes: it is
-   read beside a rendering, not on top of one, and anything covering a pane
-   would be covering the thing being compared. */
-:host([inspecting]) {
+/* The drawer takes a row or a column of its own rather than floating over the
+   panes: it is read beside a rendering, not on top of one, and anything
+   covering a pane would be covering the thing being compared.
+
+   Which of them is a real choice rather than a preference, because the drawer
+   and the panes compete for the same screen: a tall page can spare a column, a
+   wide one or three stacked panes can spare a row. */
+:host([inspecting][dock='bottom']) {
   grid-template-rows: var(--toolbar-height) 1fr minmax(160px, 38%);
+}
+
+:host([inspecting][dock='right']) {
+  grid-template-columns: 1fr minmax(260px, 34%);
+}
+
+:host([inspecting][dock='left']) {
+  grid-template-columns: minmax(260px, 34%) 1fr;
+}
+
+/* Placed rather than flowed, because the second column exists in only two of
+   the arrangements, is on a different side in each of them, and the toolbar
+   spans whatever is there. */
+devkit-app-navbar {
+  grid-row: 1;
+  grid-column: 1 / -1;
+}
+
+.panes {
+  grid-row: 2;
+  grid-column: 1;
+}
+
+:host([inspecting][dock='left']) .panes {
+  grid-column: 2;
+}
+
+:host([inspecting][dock='bottom']) devkit-inspector {
+  grid-row: 3;
+  grid-column: 1 / -1;
+}
+
+:host([inspecting][dock='right']) devkit-inspector {
+  grid-row: 2;
+  grid-column: 2;
+}
+
+:host([inspecting][dock='left']) devkit-inspector {
+  grid-row: 2;
+  grid-column: 1;
 }
 
 /* Implicit tracks rather than a fixed three: the panes are however many engines

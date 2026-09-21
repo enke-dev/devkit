@@ -1,10 +1,15 @@
 import '../icon-button/icon-button.component.js';
+import '@phosphor-icons/webcomponents/PhBrowsers';
 import '@phosphor-icons/webcomponents/PhCrosshair';
+import '@phosphor-icons/webcomponents/PhSquareHalf';
+import '@phosphor-icons/webcomponents/PhSquareHalfBottom';
 import '@phosphor-icons/webcomponents/PhTrash';
 import '@phosphor-icons/webcomponents/PhX';
 
 import type { Engine, InspectedElement, MatchedRule } from '@devkit/protocol';
 import { ENGINE_LABELS, ENGINES, INSPECTED_STYLE_GROUPS } from '@devkit/protocol';
+import { listenWindow } from '@enke.dev/lit-utils/lib/utils/event.utils.js';
+import type { TemplateResult } from 'lit';
 import { html, nothing } from 'lit';
 import { customElement, property, query, state } from 'lit/decorators.js';
 import { repeat } from 'lit/directives/repeat.js';
@@ -24,9 +29,38 @@ import {
   levelOf,
   textOf,
 } from '../../utils/inspect.utils.js';
+import type { InspectorDock } from '../../utils/layout.utils.js';
+import { INSPECTOR_DOCKS } from '../../utils/layout.utils.js';
 import styles from './inspector.component.css';
 
 type Tab = 'elements' | 'console';
+
+/** Each placement, named as the place rather than as the move to it. */
+const DOCK_LABELS: Record<InspectorDock, string> = {
+  detached: 'Separate window',
+  left: 'Dock to the left',
+  bottom: 'Dock to the bottom',
+  right: 'Dock to the right',
+};
+
+/**
+ * The glyph for a placement.
+ *
+ * Two overlapping windows for undocked and a filled half-square for each edge,
+ * which is the vocabulary the developer tools everyone already knows use for
+ * this exact row. Phosphor ships only the bottom and left halves, so the right
+ * one is the left one mirrored.
+ */
+const DOCK_GLYPHS: Record<InspectorDock, () => TemplateResult> = {
+  detached: () => html`<ph-browsers></ph-browsers>`,
+  left: () => html`<ph-square-half></ph-square-half>`,
+  bottom: () => html`<ph-square-half-bottom class="mirrored"></ph-square-half-bottom>`,
+  right: () => html`<ph-square-half class="mirrored"></ph-square-half>`,
+};
+
+function dockGlyph(dock: InspectorDock): TemplateResult {
+  return DOCK_GLYPHS[dock]();
+}
 type Floor = (typeof CONSOLE_FLOORS)[number];
 
 /**
@@ -61,6 +95,15 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
   accessor tab: Tab = 'elements';
 
   /**
+   * Which edge the drawer is attached to.
+   *
+   * Reflected because the drawer's own borders depend on it: the rule belongs
+   * along the edge it is actually against, and nowhere else.
+   */
+  @property({ type: String, reflect: true })
+  accessor dock: InspectorDock = 'bottom';
+
+  /**
    * Show only the rows the engines disagree about.
    *
    * Off by default, because an inspector that hides what agrees is useless for
@@ -68,6 +111,9 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
    * difference to chase, everything else is in the way.
    */
   @state() private accessor onlyDifferences = false;
+
+  /** Whether the placement flyout is showing. */
+  @state() private accessor dockMenu = false;
 
   @state() private accessor floor: Floor = 'debug';
   @state() private accessor muted: Engine[] = [];
@@ -119,6 +165,21 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
           <ph-crosshair weight=${this.picking ? 'bold' : 'regular'}></ph-crosshair>
         </devkit-icon-button>
         <devkit-icon-button
+          class="dock-trigger"
+          label="Dock side"
+          ?active=${this.dockMenu}
+          aria-haspopup="true"
+          aria-expanded=${ariaBoolean(this.dockMenu)}
+          @click=${() => {
+            this.dockMenu = !this.dockMenu;
+          }}
+        >
+          <!-- Unlike the pane split toggle, this one shows where the drawer is
+               rather than where it would go: it opens a list of the places
+               rather than moving to the next of them. -->
+          ${dockGlyph(this.dock)}
+        </devkit-icon-button>
+        <devkit-icon-button
           label="Close the inspector"
           @click=${() => this.emit('devkit-inspector-close')}
         >
@@ -126,8 +187,77 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
         </devkit-icon-button>
       </header>
 
+      ${this.dockMenu ? this.renderDockMenu() : nothing}
       ${this.tab === 'elements' ? this.renderElements() : this.renderConsole()}
     `;
+  }
+
+  /**
+   * Every placement at once, the current one marked.
+   *
+   * A cycling button asked people to guess what came next and hid two of the
+   * three choices while they did. All three fit in a row, so all three are
+   * shown — which is what the tools this borrows from settled on for the same
+   * reason.
+   */
+  private renderDockMenu() {
+    return html`
+      <div class="dock-menu" role="menu" aria-label="Dock side">
+        <span class="title">Dock side</span>
+        <div class="choices">
+          ${INSPECTOR_DOCKS.map(
+            dock => html`
+              <devkit-icon-button
+                role="menuitemradio"
+                aria-checked=${ariaBoolean(dock === this.dock)}
+                ?active=${dock === this.dock}
+                label=${DOCK_LABELS[dock]}
+                @click=${() => {
+                  this.dockMenu = false;
+                  if (dock !== this.dock) {
+                    this.emit('devkit-inspector-dock', dock);
+                  }
+                }}
+              >
+                ${dockGlyph(dock)}
+              </devkit-icon-button>
+            `
+          )}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Dismiss the flyout on anything that is not it.
+   *
+   * On the window rather than on the host, because a click anywhere — another
+   * pane, the toolbar, the page behind a detached window — means the same
+   * thing. The trigger is excluded so its own click toggles rather than
+   * closing and reopening.
+   */
+  @listenWindow('pointerdown')
+  protected dismissDockMenu(event: PointerEvent): void {
+    if (!this.dockMenu) {
+      return;
+    }
+    const inside = event
+      .composedPath()
+      .some(
+        node =>
+          node instanceof HTMLElement &&
+          (node.classList.contains('dock-menu') || node.classList.contains('dock-trigger'))
+      );
+    if (!inside) {
+      this.dockMenu = false;
+    }
+  }
+
+  @listenWindow('keydown')
+  protected closeDockMenuOnEscape(event: KeyboardEvent): void {
+    if (this.dockMenu && event.key === 'Escape') {
+      this.dockMenu = false;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -547,6 +677,7 @@ declare global {
   }
   interface HTMLElementEventMap {
     'devkit-inspector-tab': CustomEvent<Tab>;
+    'devkit-inspector-dock': CustomEvent<InspectorDock>;
     'devkit-inspector-close': CustomEvent<void>;
     'devkit-console-clear': CustomEvent<void>;
     'devkit-evaluate': CustomEvent<string>;

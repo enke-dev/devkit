@@ -463,6 +463,43 @@ cap for a pane that never will, and a sample whose signature matches what is alr
 dropped rather than rendered. That second guard covers most samples: the pointer moves a few pixels
 within one element far more often than it crosses into another.
 
+**The drawer has four places, offered all at once.** A window of its own, left, bottom or right,
+listed in a flyout with the current one marked — the row the developer tools everyone already knows
+put them in. It began as a button that cycled, which asked people to guess what came next and hid
+the rest of the choices while they did; they fit in a row, so they are all shown. It is a real choice rather than a preference, because the drawer and the panes compete for
+the same screen: a tall page can spare a column, a wide one or three stacked panes can spare a row.
+The host grid places each piece explicitly rather than letting them flow, because the second column
+exists in only one of the arrangements. Moving the drawer resizes every pane, and they share one
+viewport — so it re-settles immediately rather than waiting out the resize debounce, the same way
+the pane split already does.
+
+**Detached is two webviews and one truth.** The app window stays the only place that knows
+anything: it owns the buffers, it asks the sidecar, and it draws the highlights, because the panes
+are in it and nothing else can. The detached window is a view — told what to show, reporting what
+was clicked — which is the relationship every other component here already has with the app
+component. The window boundary changes the transport, not the design.
+
+It could have been otherwise. The backend broadcasts to every webview, so a second window could
+subscribe to the sidecar itself and need no relay at all. That was not taken: it would be two
+consoles filling independently, diverging the first time either missed an event, and opening empty
+because it had not been listening when the page loaded — the same mistake as starting the console
+when the drawer opens rather than when the pane does.
+
+The console is pushed one entry at a time and everything else whole, because the console is the
+only buffer that grows without bound and all but one entry of it is already on the other side. A
+window that has just loaded — or reloaded — knows nothing, and there is no way to tell from the app
+window when its webview finished booting, so it announces itself and is answered with a snapshot.
+
+Closing that window and re-attaching the drawer arrive as the same
+`tauri://destroyed`, and they mean opposite things — one dismisses the inspector, the other is the
+inspector carrying on somewhere else. Reading the second as the first closed the inspector outright
+when it was re-docked: the window went, the panes resized, and nothing came back. So a close we
+asked for is marked as ours before it is made.
+
+The detached window is granted `core:event:default` and nothing else. It has no updater, no
+restart, no route to the sidecar: everything it asks for is asked on its behalf by the window that
+owns the panes.
+
 `bun run verify:inspect` covers the parts that are engine territory rather than ours: shadow and
 frame descent, rectangle translation, the cross-origin degradations, the normalisations, the cursor
 probe, re-measuring a selection across a scroll, and that the walker adds nothing to the page's own

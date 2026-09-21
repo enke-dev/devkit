@@ -22,12 +22,19 @@ import { when } from 'lit/directives/when.js';
 import { DevkitElement } from '../../utils/base.utils.js';
 import { connect, restart, send, sendTracked } from '../../utils/bridge.utils.js';
 import { preloadCursors } from '../../utils/cursors.utils.js';
+import type { InspectorIntent, InspectorState } from '../../utils/detached.utils.js';
+import {
+  closeInspectorWindow,
+  onIntent,
+  openInspectorWindow,
+  sendState,
+} from '../../utils/detached.utils.js';
 import * as history from '../../utils/history.utils.js';
 import { attachInput } from '../../utils/input.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from '../../utils/inspect.utils.js';
 import { appendConsole, describeRef, readoutSignature } from '../../utils/inspect.utils.js';
-import type { SplitDirection } from '../../utils/layout.utils.js';
-import { storedSplit, storeSplit } from '../../utils/layout.utils.js';
+import type { InspectorDock, SplitDirection } from '../../utils/layout.utils.js';
+import { storedDock, storeDock, storedSplit, storeSplit } from '../../utils/layout.utils.js';
 import * as session from '../../utils/session.utils.js';
 import { isAppShortcut, match } from '../../utils/shortcuts.utils.js';
 import type { AvailableUpdate } from '../../utils/update.utils.js';
@@ -104,6 +111,16 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   accessor inspecting = false;
 
   @state() private accessor inspectorTab: 'elements' | 'console' = 'elements';
+
+  /**
+   * Which edge the drawer is attached to; seeded from the last session.
+   *
+   * Reflected, because it is the host grid that has to change — the drawer
+   * takes a row along the bottom or a column down the side, and which of those
+   * it is cannot be expressed from inside the drawer.
+   */
+  @property({ type: String, reflect: true })
+  accessor dock: InspectorDock = storedDock();
 
   /**
    * Whether the inspected element follows the pointer.
@@ -612,6 +629,108 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     if (!open) {
       this.clearInspection();
     }
+    if (this.dock !== 'detached') {
+      return;
+    }
+    if (open) {
+      void openInspectorWindow(() => this.setInspecting(false));
+    } else {
+      void closeInspectorWindow();
+    }
+  }
+
+  /**
+   * Move the drawer to the other edge.
+   *
+   * The window has not changed size, but every pane just did — they share one
+   * viewport, so the engines have to be told. Straight through rather than
+   * behind the resize debounce, for the same reason the pane split is: an edge
+   * is chosen once and nothing follows it, so waiting to see whether more is
+   * coming only holds the panes blank for as long as the wait.
+   */
+  private setDock(dock: InspectorDock): void {
+    if (dock === this.dock) {
+      return;
+    }
+    const wasDetached = this.dock === 'detached';
+    this.dock = dock;
+    storeDock(dock);
+    if (wasDetached) {
+      void closeInspectorWindow();
+    }
+    if (dock === 'detached' && this.inspecting) {
+      void openInspectorWindow(() => this.setInspecting(false));
+    }
+    void this.updateComplete.then(() => {
+      window.clearTimeout(this.#resizeTimer);
+      this.#settleViewport();
+    });
+  }
+
+  /**
+   * Answer the detached window, which knows nothing of its own.
+   *
+   * Everything it shows was pushed from here and everything clicked in it comes
+   * back as an intent, which is the relationship every other component in this
+   * app already has — the window boundary changes the transport, not the
+   * design. Nothing is pushed while the drawer is attached, where the same
+   * state reaches the same component through a property binding.
+   */
+  private push(state: InspectorState): void {
+    if (this.dock === 'detached') {
+      sendState(state);
+    }
+  }
+
+  private pushSnapshot(): void {
+    sendState({
+      kind: 'snapshot',
+      answers: this.answers,
+      messages: this.messages,
+      evaluations: this.evaluations,
+      picking: this.picking,
+      tab: this.inspectorTab,
+    });
+  }
+
+  private handleIntent(intent: InspectorIntent): void {
+    switch (intent.kind) {
+      case 'ready':
+        // A window that has just loaded, or reloaded, knows nothing and there
+        // is no way to tell from here when its webview finished booting — so
+        // it says so and is answered in full.
+        this.pushSnapshot();
+        return;
+      case 'tab':
+        this.setTab(intent.tab);
+        return;
+      case 'pick':
+        this.setPicking(intent.picking);
+        return;
+      case 'dock':
+        this.setDock(intent.dock);
+        return;
+      case 'evaluate':
+        this.evaluate(intent.expression);
+        return;
+      case 'clear-console':
+        this.clearConsole();
+        return;
+      case 'close':
+        this.setInspecting(false);
+        return;
+    }
+  }
+
+  private setTab(tab: 'elements' | 'console'): void {
+    this.inspectorTab = tab;
+    this.push({ kind: 'tab', tab });
+  }
+
+  private clearConsole(): void {
+    this.messages = [];
+    this.evaluations = [];
+    this.push({ kind: 'console-cleared' });
   }
 
   private setPicking(picking: boolean): void {
@@ -619,6 +738,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       return;
     }
     this.picking = picking;
+    this.push({ kind: 'picking', picking });
     if (!picking) {
       window.clearTimeout(this.#inspectTrailing);
     }
@@ -758,6 +878,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       return;
     }
     this.answers = answers;
+    this.push({ kind: 'answers', answers });
     // Each pane is highlighted from its own answer: when two engines put the
     // same element in different places, two rectangles in different places is
     // the finding, and one shared overlay would have to be wrong about one.
@@ -778,6 +899,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.evaluations = [...this.evaluations, { id, expression, results: [] }].slice(
       -EVALUATION_LIMIT
     );
+    this.push({ kind: 'evaluations', evaluations: this.evaluations });
     void done.catch((error: unknown) => this.reportError(error));
   }
 
@@ -1074,6 +1196,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
             ? { ...evaluation, results: [...evaluation.results, { engine, result }] }
             : evaluation
         );
+        this.push({ kind: 'evaluations', evaluations: this.evaluations });
         return;
       }
 
@@ -1082,6 +1205,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         // Kept whether or not the drawer is open: a console switched on after
         // the page loaded has already missed what it was opened to see.
         this.messages = appendConsole(this.messages, event);
+        // Appended across the boundary rather than re-sent whole: the buffer
+        // runs to two thousand entries, and all but one of them is already
+        // there.
+        this.push({ kind: 'console', entry: event });
         return;
 
       case 'ack':
@@ -1139,6 +1266,16 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       .then(() => send({ type: 'probe' }))
       .catch(error => this.reportError(error));
 
+    // The detached inspector has no state of its own; it reports what was
+    // clicked and is told what to show.
+    void onIntent(intent => this.handleIntent(intent));
+
+    // A window left open across a reload of this one is still there, and still
+    // waiting to be told things.
+    if (this.dock === 'detached' && this.inspecting) {
+      void openInspectorWindow(() => this.setInspecting(false));
+    }
+
     if (import.meta.env.DEV) {
       startFrameDiagnostics(() => this.panes);
     }
@@ -1185,16 +1322,14 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         .updateVersion=${this.pendingUpdate?.version ?? ''}
         .updating=${this.installingUpdate}
         .upToDate=${this.upToDate}
-        @devkit-noticed=${() => {
-          this.upToDate = false;
-        }}
         .inspecting=${this.inspecting}
-        @devkit-inspector=${(event: CustomEvent<boolean>) => this.setInspecting(event.detail)}
         .split=${this.split}
         .canGoBack=${this.canGoBack}
         .canGoForward=${this.canGoForward}
         .problem=${this.problem}
         .url=${this.url}
+        @devkit-noticed=${() => (this.upToDate = false)}
+        @devkit-inspector=${(event: CustomEvent<boolean>) => this.setInspecting(event.detail)}
         @devkit-navigate=${(event: CustomEvent<string>) => this.navigate(event.detail)}
         @devkit-split=${(event: CustomEvent<SplitDirection>) => this.setSplit(event.detail)}
         @devkit-back=${() => this.goBack()}
@@ -1219,7 +1354,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       </main>
 
       ${when(
-        this.inspecting,
+        this.inspecting && this.dock !== 'detached',
         () => html`
           <devkit-inspector
             .answers=${this.answers}
@@ -1227,15 +1362,14 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
             .evaluations=${this.evaluations}
             .picking=${this.picking}
             .tab=${this.inspectorTab}
-            @devkit-inspector-tab=${(event: CustomEvent<'elements' | 'console'>) => {
-              this.inspectorTab = event.detail;
-            }}
+            .dock=${this.dock}
+            @devkit-inspector-dock=${(event: CustomEvent<InspectorDock>) =>
+              this.setDock(event.detail)}
+            @devkit-inspector-tab=${(event: CustomEvent<'elements' | 'console'>) =>
+              this.setTab(event.detail)}
             @devkit-inspector-close=${() => this.setInspecting(false)}
             @devkit-pick=${(event: CustomEvent<boolean>) => this.setPicking(event.detail)}
-            @devkit-console-clear=${() => {
-              this.messages = [];
-              this.evaluations = [];
-            }}
+            @devkit-console-clear=${() => this.clearConsole()}
             @devkit-evaluate=${(event: CustomEvent<string>) => this.evaluate(event.detail)}
           ></devkit-inspector>
         `

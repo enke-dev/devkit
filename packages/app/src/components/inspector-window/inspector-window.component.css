@@ -1,0 +1,11 @@
+:host {
+  display: grid;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* No border in a window of its own: the frame the desktop draws around it is
+   already the edge, and a second one inside reads as a panel in a panel. */
+devkit-inspector {
+  border: 0;
+}

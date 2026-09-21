@@ -80,6 +80,9 @@ Gecko produced is visible at a glance. Filter by severity, by engine, or by text
 
 **Evaluate.** One expression, three answers side by side.
 
+The button beside the picker opens the placements: along the bottom, down either side, or out into
+a window of its own. Where you left it is where it comes back.
+
 The highlight is drawn over the frames and never injected into the page, so nothing you inspect
 appears in what the engines render. For breakpoints and the rest, the detach button in a pane's
 header opens that page in a real window of the same engine, with its own developer tools.

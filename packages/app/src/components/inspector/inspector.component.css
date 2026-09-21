@@ -1,11 +1,31 @@
 :host {
   display: grid;
+  position: relative;
   grid-template-rows: 30px 1fr;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
   border-top: 1px solid var(--border);
   background: var(--bg-raised);
   font-size: 12px;
+}
+
+/* The rule goes along whichever edge the drawer is actually against. */
+:host([dock='right']) {
+  border-top: 0;
+  border-left: 1px solid var(--border);
+}
+
+:host([dock='left']) {
+  border-top: 0;
+  border-right: 1px solid var(--border);
+}
+
+/* The glyph reads as a panel filling the left half; docked right is its
+   mirror, and Phosphor ships only the one. */
+.mirrored {
+  display: inline-flex;
+  transform: rotate(180deg);
 }
 
 header {
@@ -174,8 +194,11 @@ code {
 
 /* Controls --------------------------------------------------------------- */
 
+/* Wraps because the drawer can be a narrow column now, and a filter row that
+   overflows takes the search field off the edge with it. */
 .controls {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   align-items: center;
   padding: 0 4px;
@@ -486,4 +509,37 @@ input.expression {
 input.expression:focus {
   outline: none;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* Placement flyout ------------------------------------------------------- */
+
+/* Positioned against the drawer rather than the header, so it can hang over
+   the body — the host clips its overflow, and a panel anchored inside a 30px
+   header would be cut off at the first pixel below it. */
+.dock-menu {
+  position: absolute;
+  top: 28px;
+  right: 6px;
+  z-index: 5;
+  display: grid;
+  gap: 5px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 22%);
+}
+
+.dock-menu .title {
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* All three at once, which is the whole reason this is a panel and not a
+   button that cycles. */
+.dock-menu .choices {
+  display: flex;
+  gap: 2px;
 }
