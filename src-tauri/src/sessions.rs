@@ -46,7 +46,9 @@ impl Sessions {
         let slot = (0..MAX_SESSIONS)
             .map(|candidate| candidate as u8)
             .find(|candidate| !table.by_slot.contains_key(candidate))
-            .ok_or_else(|| format!("no free session slot; {MAX_SESSIONS} windows are already open"))?;
+            .ok_or_else(|| {
+                format!("no free session slot; {MAX_SESSIONS} windows are already open")
+            })?;
         table.by_label.insert(label.to_string(), slot);
         table.by_slot.insert(slot, label.to_string());
         Ok(slot)

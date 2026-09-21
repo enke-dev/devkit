@@ -14,6 +14,7 @@
     "windows": [
       {
         "title": "DevKit",
+        "tabbingIdentifier": "dev.enke.devkit.comparison",
         "width": 1600,
         "height": 960,
         "minWidth": 900,

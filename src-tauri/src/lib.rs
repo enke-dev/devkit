@@ -6,6 +6,7 @@ mod frames;
 mod protocol;
 mod sessions;
 mod sidecar;
+mod windows;
 
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
@@ -159,6 +160,17 @@ fn close_session(app: &tauri::AppHandle, label: &str) {
 fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     let check = MenuItemBuilder::with_id("check-for-updates", "Check for Updates…").build(app)?;
 
+    // Called a tab where the platform makes one, a window where it does not, so
+    // the menu says what will actually appear.
+    #[cfg(target_os = "macos")]
+    let comparison = MenuItemBuilder::with_id("new-comparison", "New Tab")
+        .accelerator("Cmd+T")
+        .build(app)?;
+    #[cfg(not(target_os = "macos"))]
+    let comparison = MenuItemBuilder::with_id("new-comparison", "New Window")
+        .accelerator("Ctrl+N")
+        .build(app)?;
+
     #[cfg(target_os = "macos")]
     let menu = {
         let application = SubmenuBuilder::new(app, "DevKit")
@@ -172,6 +184,14 @@ fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             .separator()
             .quit()
             .build()?;
+        // A comparison is opened and closed from here, which is also where the
+        // shortcuts live: ⌘W is the menu item, not something the window does by
+        // itself.
+        let file = SubmenuBuilder::new(app, "File")
+            .item(&comparison)
+            .separator()
+            .close_window()
+            .build()?;
         // Without an Edit menu the standard editing shortcuts stop working in
         // the address bar: on macOS they are the menu, not the text field.
         let edit = SubmenuBuilder::new(app, "Edit")
@@ -183,13 +203,29 @@ fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             .paste()
             .select_all()
             .build()?;
-        MenuBuilder::new(app).items(&[&application, &edit]).build()?
+        // Minimize and Zoom belong to macOS's own Window menu, which is also
+        // where the tab commands appear once windows are tabbed — AppKit adds
+        // Show All Tabs and Merge All Windows to it by itself.
+        let window = SubmenuBuilder::new(app, "Window")
+            .minimize()
+            .maximize()
+            .separator()
+            .close_window()
+            .build()?;
+        MenuBuilder::new(app)
+            .items(&[&application, &file, &edit, &window])
+            .build()?
     };
 
     #[cfg(not(target_os = "macos"))]
     let menu = {
+        let file = SubmenuBuilder::new(app, "File")
+            .item(&comparison)
+            .separator()
+            .close_window()
+            .build()?;
         let help = SubmenuBuilder::new(app, "Help").item(&check).build()?;
-        MenuBuilder::new(app).items(&[&help]).build()?
+        MenuBuilder::new(app).items(&[&file, &help]).build()?
     };
 
     app.set_menu(menu)?;
@@ -197,6 +233,11 @@ fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         if event.id() == "check-for-updates" {
             // The frontend owns the updater; this only says that somebody asked.
             let _ = app.emit(protocol::CHECK_FOR_UPDATES_EVENT, ());
+        }
+        if event.id() == "new-comparison" {
+            if let Err(error) = windows::open(app) {
+                note!("[devkit] could not open another comparison: {error}");
+            }
         }
     });
     Ok(())
@@ -227,6 +268,9 @@ pub fn run() {
             if let Err(error) = install_menu(&app.handle().clone()) {
                 eprintln!("[devkit] no menu: {error}");
             }
+
+            // The first window exists already; the rest are opened from here.
+            windows::adopt_first_window(&app.handle().clone());
 
             // Frames arrive over their own socket rather than as base64 on
             // stdout; the sidecar is told where to connect.

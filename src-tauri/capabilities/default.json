@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Baseline permissions for a DevKit window. The sidecar is spawned from Rust, so no shell permissions are exposed to the frontend; the updater and a restart are, because installing a new version is asked for from the UI, and the three window permissions are what lets the inspector be opened in a window of its own. One entry per shape of app-window label: `main` is the one the config opens, `s1`, `s2`, … are the comparisons opened after it.",
+  "description": "Baseline permissions for a DevKit window. The sidecar is spawned from Rust, so no shell permissions are exposed to the frontend; the updater and a restart are, because installing a new version is asked for from the UI, the window permissions are what lets the inspector be opened in a window of its own, and setting the title is how a tab comes to be named after the page it is showing rather than after the app. One entry per shape of app-window label: `main` is the one the config opens, `s1`, `s2`, … are the comparisons opened after it.",
   "windows": [
     "main",
     "s*"
@@ -11,6 +11,7 @@
     "core:webview:allow-create-webview-window",
     "core:window:allow-close",
     "core:window:allow-set-focus",
+    "core:window:allow-set-title",
     "updater:default",
     "process:allow-restart"
   ]
