@@ -1,4 +1,5 @@
 import '../icon-button/icon-button.component.js';
+import '../popover/popover.component.js';
 import '@phosphor-icons/webcomponents/PhArrowSquareOut';
 import '@phosphor-icons/webcomponents/PhCircleNotch';
 import '@phosphor-icons/webcomponents/PhMoon';
@@ -6,7 +7,7 @@ import '@phosphor-icons/webcomponents/PhSun';
 
 import type { ColorScheme, Engine } from '@devkit/protocol';
 import { ENGINE_LABELS } from '@devkit/protocol';
-import { html } from 'lit';
+import { html, nothing } from 'lit';
 import { customElement, property } from 'lit/decorators.js';
 import { choose } from 'lit/directives/choose.js';
 import { styleMap } from 'lit/directives/style-map.js';
@@ -59,10 +60,24 @@ export class PaneNavbarComponent extends DevkitElement.withStyles(styles) {
   @property({ type: Boolean, reflect: true })
   accessor solo = false;
 
+  /** Engine and build in one line, for the mark's tooltip. */
+  private get identity(): string {
+    return [ENGINE_LABELS[this.engine], this.version].filter(Boolean).join(' ');
+  }
+
   override render() {
     return html`
       <span class="title">
-        ${renderEngineGlyph(this.engine)}
+        <!-- The mark never leaves, however narrow the pane gets — it is how
+             you know which engine you are looking at. What it hides beside it
+             comes back through the flyout it opens. -->
+        <devkit-popover class="identity" placement="bottom-start" label="Engine">
+          <button slot="trigger" class="mark" type="button" title=${this.identity}>
+            ${renderEngineGlyph(this.engine)}
+          </button>
+          <span class="identity-name">${ENGINE_LABELS[this.engine]}</span>
+          ${this.version ? html`<span class="identity-version">${this.version}</span>` : nothing}
+        </devkit-popover>
         <span class="name">${ENGINE_LABELS[this.engine]}</span>
         <span class="version">${this.version}</span>
       </span>
@@ -94,8 +109,11 @@ export class PaneNavbarComponent extends DevkitElement.withStyles(styles) {
         </devkit-icon-button>
       </nav>
       <span class="meter">${this.rate}</span>
+      <!-- The dot survives every width; the word beside it does not. A
+           colour alone still says which of the two running modes a pane is
+           in, and whether it is running at all. -->
       <span class="status" style=${styleMap({ color: statusColour(this.status) })}>
-        ${statusLabel(this.status)}
+        <span class="label">${statusLabel(this.status)}</span>
       </span>
     `;
   }

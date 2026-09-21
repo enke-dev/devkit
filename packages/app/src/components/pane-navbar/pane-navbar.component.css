@@ -4,7 +4,6 @@
   align-items: center;
   min-width: 0;
   padding: 0 10px;
-  overflow: hidden;
   border-bottom: 1px solid var(--border);
   font-size: 11px;
   /* Nothing in here may wrap. The header is one line tall by construction, so
@@ -50,6 +49,29 @@ svg.engine {
   height: 1.2em;
   margin-right: 3px;
   fill: currentColor;
+}
+
+/* The mark is a button because it opens something. It is not dressed as one:
+   a hover plate on the thing that identifies the pane would read as a control
+   for the pane rather than as its name. */
+.mark {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.identity-name {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.identity-version {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The browser build behind the engine: identifying, not headline, and the
@@ -122,4 +144,30 @@ ph-sun {
   border-radius: 50%;
   background: currentColor;
   vertical-align: 1px;
+}
+
+/* Narrow panes ----------------------------------------------------------- */
+
+/* Measured against the pane, not the window: three panes side by side leave
+   each other a third of it, and the header has to fit in whatever that is.
+
+   Things leave in order of what can be recovered elsewhere. The status word
+   goes first, because the dot it sits beside already carries the state in
+   colour. The engine's name and build go next, because the mark still says
+   which engine this is and the flyout gives the rest back on demand. */
+@container pane (width < 380px) {
+  .status .label {
+    display: none;
+  }
+
+  .status::before {
+    margin-right: 0;
+  }
+}
+
+@container pane (width < 300px) {
+  .name,
+  .version {
+    display: none;
+  }
 }
