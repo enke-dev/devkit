@@ -111,8 +111,19 @@ const ANSWER_GRACE_MS = 300;
  */
 const SETTLE_REMEASURE_MS = 250;
 
-/** A node to open the tree down to, named the way the pane that found it named it. */
+/**
+ * A node to open the tree down to, named the way the pane that found it named
+ * it — and said which pane that was.
+ *
+ * The engine is not decoration. A handle means nothing in a pane that did not
+ * mint it, and there is a window, between asking one engine for a tree and
+ * being given it, in which the tree on screen still belongs to the engine
+ * before it. Anything recorded during that window is recorded against the old
+ * one, and applying it to the new one asks an engine about somebody else's
+ * nodes.
+ */
 interface RevealTarget {
+  engine: Engine;
   nodeId: string;
   ancestors: string[];
 }
@@ -301,7 +312,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * So it is a standing intention rather than a call, retried every time a
    * slice of tree arrives.
    */
-  #revealing: { nodeId: string; ancestors: string[] } | null = null;
+  #revealing: RevealTarget | null = null;
 
   /** The watch set as last sent, so an unchanged one is not sent again. */
   #watching = '';
@@ -1138,13 +1149,22 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * start the tree again, and the two would take turns.
    */
   private switchTreeEngine(engine: Engine): void {
-    const wanted = this.answers.find(answer => answer.engine === engine)?.element;
-    this.startTree(
-      engine,
-      wanted?.nodeId && wanted.ancestors
-        ? { nodeId: wanted.nodeId, ancestors: wanted.ancestors }
-        : null
-    );
+    this.startTree(engine, this.revealTargetFor(engine));
+  }
+
+  /**
+   * Where a given engine's tree should be opened to, from what it last said.
+   *
+   * The selection is described by every engine at once and each answers with
+   * its own handles, so the column for this engine is already holding the chain
+   * — no round trip, and nothing to resolve.
+   */
+  private revealTargetFor(engine: Engine): RevealTarget | null {
+    const element = this.answers.find(answer => answer.engine === engine)?.element;
+    if (!element?.nodeId || !element.ancestors) {
+      return null;
+    }
+    return { engine, nodeId: element.nodeId, ancestors: element.ancestors };
   }
 
   /** Drop the tree, for a navigation that made every handle in it meaningless. */
@@ -1232,11 +1252,26 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       this.reportError(new Error(event.error));
       return;
     }
+    // A reveal already standing for this engine wins. It was asked for after
+    // this root was, so it is the more recent intention — somebody picked an
+    // element while the tree was still on its way — and one recorded against
+    // the engine that was on screen before this one names nodes this engine
+    // never had.
+    const standing = this.#revealing?.engine === pending.engine ? this.#revealing : null;
+    this.#revealing = null;
+
     this.tree = absorb(emptyTree(pending.engine), null, event.nodes);
     this.matchCount = null;
     this.pushWatch();
-    if (pending.reveal) {
-      this.revealNode(pending.reveal.nodeId, pending.reveal.ancestors);
+
+    // Reopened from here and nowhere else. A reveal advances on the answers to
+    // the children it asked for, and a tree that has only just arrived has none
+    // outstanding — so a reveal that was waiting for this root would simply
+    // have sat there. That is what left the first pick after the drawer opened
+    // expanding nothing at all, whenever the pick beat the root.
+    const target = standing ?? pending.reveal;
+    if (target) {
+      this.revealNode(target);
     }
   }
 
@@ -1308,7 +1343,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.matchCount = event.matches.length;
     const first = event.matches[0];
     if (first) {
-      this.revealNode(first.nodeId, first.ancestors);
+      // Named from the answer rather than from the tree on screen: searching is
+      // asked of one engine, and which engine that was is what the handles
+      // belong to — whatever the panel has switched to since.
+      this.revealNode({ engine: event.engine, nodeId: first.nodeId, ancestors: first.ancestors });
     }
   }
 
@@ -1318,8 +1356,8 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * Recorded rather than done, because the chain cannot be walked in one go:
    * each level's children have to land before the next can be opened.
    */
-  private revealNode(nodeId: string, ancestors: string[]): void {
-    this.#revealing = { nodeId, ancestors };
+  private revealNode(target: RevealTarget): void {
+    this.#revealing = target;
     this.continueReveal();
   }
 
@@ -1327,6 +1365,14 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     const wanted = this.#revealing;
     const tree = this.tree;
     if (!wanted || !tree) {
+      return;
+    }
+    if (wanted.engine !== tree.engine) {
+      // Recorded against the tree that was on screen while this one was being
+      // fetched. Its handles name nodes in another engine, and asking this one
+      // about them would be refused — which would start the tree again, and
+      // lose whatever it had opened in the meantime.
+      this.#revealing = null;
       return;
     }
     const opened = reveal(tree, wanted.ancestors);
@@ -1745,11 +1791,17 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * nothing and moving across a page does not fight whoever is reading it.
    */
   private revealPicked(answers: InspectAnswer[]): void {
-    const tree = this.tree;
-    if (!tree) {
+    // The engine whose tree is on screen, or — when none is yet — the one whose
+    // tree is on its way. Requiring a tree here is what made the very first
+    // pick after the drawer opened expand nothing: the drawer asks for a root
+    // and the pointer beats the answer to it, so the reveal was dropped at a
+    // moment when there was nothing to drop it for. Recorded against the
+    // pending engine instead, it is waiting when the root lands.
+    const engine = this.tree?.engine ?? this.pendingRoot?.engine;
+    if (engine === undefined) {
       return;
     }
-    const element = answers.find(answer => answer.engine === tree.engine)?.element;
+    const element = answers.find(answer => answer.engine === engine)?.element;
     if (!element?.nodeId || !element.ancestors) {
       return;
     }
@@ -1757,10 +1809,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     // picker takes, and a pointer resting on one element produces the same
     // answer eleven times a second — each of which would otherwise rebuild the
     // tree to arrive at what it already said.
-    if (tree.selectedId === element.nodeId && this.#revealing === null) {
+    if (this.tree?.selectedId === element.nodeId && this.#revealing === null) {
       return;
     }
-    this.revealNode(element.nodeId, element.ancestors);
+    this.revealNode({ engine, nodeId: element.nodeId, ancestors: element.ancestors });
   }
 
   private onEvent(event: Event): void {
@@ -1888,10 +1940,17 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
 
       case 'dom-invalidated':
         // The pane's document was replaced, or changed so much at once that
-        // describing it costs more than asking again. Either way every handle
-        // in the tree is worthless.
+        // describing it costs more than asking again.
+        //
+        // Which of those it was decides whether the handles are worthless, and
+        // the pane cannot tell us — so the selection is offered back and the
+        // answer settles it. A page that merely churned still has the nodes it
+        // had, and the tree comes back open where it was; a page that navigated
+        // refuses the chain, and the refusal starts a plain tree with no reveal
+        // to try again with. Rebuilding blind cost a revealed tree everything
+        // it had opened, a beat after it opened it.
         if (this.tree?.engine === event.engine) {
-          this.startTree(event.engine);
+          this.startTree(event.engine, this.revealTargetFor(event.engine));
         }
         return;
 
