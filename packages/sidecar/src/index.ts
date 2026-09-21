@@ -342,6 +342,10 @@ async function handle(request: Request): Promise<void> {
       await answerInspect(request.id, request.engine, pane => pane.remeasure());
       return;
 
+    case 'deselect':
+      await Promise.all(targets(request.engine).map(pane => pane.deselect()));
+      return;
+
     case 'dom-root':
       await answerDomNodes(request.id, request.engine, pane => pane.domRoot(request.depth));
       return;

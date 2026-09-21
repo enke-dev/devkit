@@ -957,6 +957,23 @@ export class Pane {
   }
 
   /**
+   * Let go of the selection, and stop paying for it.
+   *
+   * Never throws. This is the app saying it has stopped caring, and a pane that
+   * cannot be told has nothing to forget — it is gone, and its selection went
+   * with its document.
+   *
+   * The flag is cleared whether or not the page answered: it is what makes
+   * every later input cost nothing, and leaving it standing because a page was
+   * mid-navigation would keep the cost this exists to remove.
+   */
+  async deselect(): Promise<void> {
+    this.#hasSelection = false;
+    this.#lastSelectionAt = '';
+    await this.#askWalker<null>('deselect()').catch(() => {});
+  }
+
+  /**
    * Run an expression in this page and describe what it produced.
    *
    * Awaited, so a promise answers with its value rather than with the fact that

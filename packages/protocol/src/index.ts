@@ -132,6 +132,24 @@ export type Command =
    */
   | { type: 'remeasure'; engine: Engine | 'all' }
   /**
+   * Let go of whatever each pane was holding selected.
+   *
+   * The counterpart to an inspect, and the protocol has no business without
+   * it. A pane that has a selection measures it again after every input that
+   * could have moved the page, and volunteers a `selection` event when it did —
+   * which is exactly right while somebody is looking at the drawer, and is an
+   * evaluation per pane per scroll for a panel that has been shut.
+   *
+   * Two things stop, and both matter. The page stops being asked, which is the
+   * cost; and the pane stops volunteering, which is the ghost — an element
+   * selected before the drawer was closed would otherwise be drawn over the
+   * pane again the first time the page scrolled after it was reopened.
+   *
+   * Acked only. There is nothing to answer: it is the absence of a selection,
+   * and the highlight it belonged to has already gone.
+   */
+  | { type: 'deselect'; engine: Engine | 'all' }
+  /**
    * The document element of one pane, or of all of them, with a few levels
    * already in hand.
    *

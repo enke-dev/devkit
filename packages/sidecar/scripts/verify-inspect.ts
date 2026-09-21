@@ -188,6 +188,10 @@ function cursorAt(page: Page, x: number, y: number): Promise<string | null> {
   >;
 }
 
+function deselect(page: Page): Promise<void> {
+  return page.evaluate(`globalThis[${JSON.stringify(WALKER_KEY)}].deselect()`) as Promise<void>;
+}
+
 function remeasure(page: Page): Promise<InspectedElement | null> {
   return page.evaluate(
     `globalThis[${JSON.stringify(WALKER_KEY)}].remeasure()`
@@ -452,6 +456,27 @@ async function run(engine: EngineName, origin: string): Promise<void> {
 
     await page.evaluate("document.getElementById('words').remove()");
     check(engine, 'forgets an element that left the document', (await remeasure(page)) === null);
+    await page.evaluate('window.scrollTo(0, 0)');
+
+    // --- letting go ---------------------------------------------------------
+    // What the drawer being closed does. A pane that still held a selection
+    // went on measuring it after every scroll, and went on saying where it had
+    // got to — which drew the old highlight back over the pane the moment the
+    // drawer was opened again.
+    await inspect(page, ON_TEXT.x, ON_TEXT.y);
+    check(engine, 'holds a selection once it has one', (await remeasure(page)) !== undefined);
+    await deselect(page);
+    check(
+      engine,
+      'lets go when it is told to',
+      (await remeasure(page)) === undefined,
+      String(await remeasure(page))
+    );
+    // Undefined and not null: null is "what was selected has gone", which is
+    // the highlight's cue to disappear, and undefined is "there is nothing to
+    // ask about" — the state a pane has to be in to cost nothing.
+    await page.evaluate('window.scrollTo(0, 60)');
+    check(engine, 'and stays let go over a scroll', (await remeasure(page)) === undefined);
     await page.evaluate('window.scrollTo(0, 0)');
 
     if (shadowed) {

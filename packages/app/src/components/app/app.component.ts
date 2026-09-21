@@ -111,6 +111,15 @@ const ANSWER_GRACE_MS = 300;
  */
 const SETTLE_REMEASURE_MS = 250;
 
+/**
+ * The watch set as it reads when nothing is being watched.
+ *
+ * A value rather than an empty string, because the empty string is what the
+ * field is reset to when a tree is dropped — and telling those apart is the
+ * difference between "nobody is watching" and "nobody has said yet".
+ */
+const NOTHING_WATCHED = 'none';
+
 /** How many past evaluations are kept; older ones scroll out of reach anyway. */
 const EVALUATION_LIMIT = 50;
 
@@ -761,10 +770,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     if (open) {
       this.ensureTree();
     } else {
-      this.clearInspection();
-      // The same argument as the picker: a closed drawer must not leave a page
-      // observing its own DOM for a panel nobody can see.
+      // Stopped before the tree is dropped rather than after: both orders read
+      // the same, and only one of them still knows what to stop.
       this.stopWatching();
+      this.clearInspection();
     }
     if (this.dock !== 'detached') {
       return;
@@ -978,6 +987,15 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.#inspectId = null;
     this.answers = [];
     this.panes.forEach(pane => pane.showHighlight(null));
+    // Said out loud, because the panes cannot tell. Each one holds the element
+    // it last inspected and measures it again after every input that could have
+    // moved the page — an evaluation per pane per scroll, for a highlight that
+    // has just been taken off the screen. Worse than the cost: it goes on
+    // volunteering where the element has got to, so one drawn before the drawer
+    // was shut comes back the first time the page scrolls after it is reopened.
+    void send({ type: 'deselect', engine: 'all' }).catch(() => {
+      // Nothing to let go of in a pane that has gone.
+    });
     // Every handle in the tree names a node in the document being left. The
     // walkers are per document and have already forgotten them.
     this.clearTree();
@@ -1040,7 +1058,13 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     }
     if (!this.tree || this.tree.engine !== engine) {
       this.startTree(engine);
+      return;
     }
+    // The tree survived being looked away from — the console tab, or the drawer
+    // being shut and opened again — but the watch behind it did not, because
+    // looking away is exactly when it is turned off. Nothing else would ever
+    // turn it back on: a tree that is already right is a tree nothing rebuilds.
+    this.pushWatch();
   }
 
   /** Throw away whatever tree there was and ask this engine for a fresh one. */
@@ -1286,12 +1310,15 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * shown again.
    */
   private stopWatching(): void {
-    const tree = this.tree;
-    if (!tree || this.#watching === `${tree.engine}:`) {
+    if (this.#watching === NOTHING_WATCHED) {
       return;
     }
-    this.#watching = `${tree.engine}:`;
-    void send({ type: 'dom-watch', engine: tree.engine, nodeIds: [] }).catch(() => {
+    this.#watching = NOTHING_WATCHED;
+    // Every pane rather than the tree's own. Only one is ever watching, but
+    // this is also what runs when the tree has just been thrown away — and
+    // asking which engine that tree belonged to is how this came to do nothing
+    // at all on the path that needed it most.
+    void send({ type: 'dom-watch', engine: 'all', nodeIds: [] }).catch(() => {
       // A pane that cannot be told has nothing to stop: it is gone, and its
       // observers went with its document.
     });

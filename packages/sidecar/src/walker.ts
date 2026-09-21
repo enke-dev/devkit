@@ -639,6 +639,18 @@ export const WALKER_SOURCE = `(() => {
   };
 
   /**
+   * Let go of the selected element.
+   *
+   * The registry is untouched: handles are the tree's and are still good. This
+   * is only the one reference the highlight is drawn from, and dropping it is
+   * what stops a scroll costing a measurement nobody asked for.
+   */
+  const deselect = () => {
+    selected = null;
+    selection = null;
+  };
+
+  /**
    * The cursor the engine would show at a point.
    *
    * Asked of the engine rather than inferred, so cursor: pointer on a link —
@@ -1353,6 +1365,7 @@ export const WALKER_SOURCE = `(() => {
     value: {
       inspect,
       remeasure,
+      deselect,
       cursorAt,
       describe,
       fail,
