@@ -67,54 +67,56 @@ export class PaneNavbarComponent extends DevkitElement.withStyles(styles) {
 
   override render() {
     return html`
-      <span class="title">
-        <!-- The mark never leaves, however narrow the pane gets — it is how
-             you know which engine you are looking at. What it hides beside it
-             comes back through the flyout it opens. -->
-        <devkit-popover class="identity" placement="bottom-start" label="Engine">
-          <button slot="trigger" class="mark" type="button" title=${this.identity}>
-            ${renderEngineGlyph(this.engine)}
-          </button>
-          <span class="identity-name">${ENGINE_LABELS[this.engine]}</span>
-          ${this.version ? html`<span class="identity-version">${this.version}</span>` : nothing}
-        </devkit-popover>
-        <span class="name">${ENGINE_LABELS[this.engine]}</span>
-        <span class="version">${this.version}</span>
-      </span>
-      <span class="dims">${this.dims}</span>
-      <nav>
-        <devkit-icon-button
-          label=${
-            this.detaching
-              ? `Opening ${ENGINE_LABELS[this.engine]} window`
-              : `Open in a ${ENGINE_LABELS[this.engine]} window`
-          }
-          ?disabled=${this.detaching || !isRunning(this.status)}
-          @click=${() => this.dispatchEvent(new CustomEvent('devkit-detach'))}
-        >
-          ${
-            this.detaching
-              ? html`<ph-circle-notch class="spin"></ph-circle-notch>`
-              : html`<ph-arrow-square-out></ph-arrow-square-out>`
-          }
-        </devkit-icon-button>
-        <devkit-icon-button
-          label="Render ${this.colorScheme === 'dark' ? 'light' : 'dark'}"
-          @click=${() => this.dispatchEvent(new CustomEvent('devkit-color-scheme'))}
-        >
-          ${choose(this.colorScheme, [
-            ['dark', () => html`<ph-moon></ph-moon>`],
-            ['light', () => html`<ph-sun></ph-sun>`],
-          ])}
-        </devkit-icon-button>
-      </nav>
-      <span class="meter">${this.rate}</span>
-      <!-- The dot survives every width; the word beside it does not. A
-           colour alone still says which of the two running modes a pane is
-           in, and whether it is running at all. -->
-      <span class="status" style=${styleMap({ color: statusColour(this.status) })}>
-        <span class="label">${statusLabel(this.status)}</span>
-      </span>
+      <div class="bar">
+        <span class="title">
+          <!-- The mark never leaves, however narrow the pane gets — it is how
+               you know which engine you are looking at. What it hides beside it
+               comes back through the flyout it opens. -->
+          <devkit-popover class="identity" placement="bottom-start" label="Engine">
+            <button slot="trigger" class="mark" type="button" title=${this.identity}>
+              ${renderEngineGlyph(this.engine)}
+            </button>
+            <span class="identity-name">${ENGINE_LABELS[this.engine]}</span>
+            ${this.version ? html`<span class="identity-version">${this.version}</span>` : nothing}
+          </devkit-popover>
+          <span class="name">${ENGINE_LABELS[this.engine]}</span>
+          <span class="version">${this.version}</span>
+        </span>
+        <span class="dims">${this.dims}</span>
+        <nav>
+          <devkit-icon-button
+            label=${
+              this.detaching
+                ? `Opening ${ENGINE_LABELS[this.engine]} window`
+                : `Open in a ${ENGINE_LABELS[this.engine]} window`
+            }
+            ?disabled=${this.detaching || !isRunning(this.status)}
+            @click=${() => this.dispatchEvent(new CustomEvent('devkit-detach'))}
+          >
+            ${
+              this.detaching
+                ? html`<ph-circle-notch class="spin"></ph-circle-notch>`
+                : html`<ph-arrow-square-out></ph-arrow-square-out>`
+            }
+          </devkit-icon-button>
+          <devkit-icon-button
+            label="Render ${this.colorScheme === 'dark' ? 'light' : 'dark'}"
+            @click=${() => this.dispatchEvent(new CustomEvent('devkit-color-scheme'))}
+          >
+            ${choose(this.colorScheme, [
+              ['dark', () => html`<ph-moon></ph-moon>`],
+              ['light', () => html`<ph-sun></ph-sun>`],
+            ])}
+          </devkit-icon-button>
+        </nav>
+        <span class="meter">${this.rate}</span>
+        <!-- The dot survives every width; the word beside it does not. A
+             colour alone still says which of the two running modes a pane is
+             in, and whether it is running at all. -->
+        <span class="status" style=${styleMap({ color: statusColour(this.status) })}>
+          <span class="label">${statusLabel(this.status)}</span>
+        </span>
+      </div>
     `;
   }
 }

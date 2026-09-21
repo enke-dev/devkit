@@ -462,6 +462,20 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   }
 
   /**
+   * The same question asked of the mouse events rather than the pointer ones.
+   *
+   * Not redundant in practice: an engine can synthesise one family at a window
+   * boundary and not the other, and which family is missing is the sort of
+   * thing that differs between a browser and the webview built from it.
+   */
+  @listenWindow('mouseout')
+  protected handleMouseOut(event: MouseEvent): void {
+    if (event.relatedTarget === null) {
+      this.leftTheWindow('mouseout');
+    }
+  }
+
+  /**
    * Take the stand-ins down, and say what noticed.
    *
    * Which event reports a pointer leaving the window turns out to depend on
@@ -472,9 +486,6 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * guessing this wrong is a cursor that sits in a pane the pointer left.
    */
   private leftTheWindow(signal: string): void {
-    if (this.#activeEngine === null && this.#pointer === null) {
-      return;
-    }
     if (import.meta.env.DEV) {
       void invoke('debug_log', { message: `pointer left the window: ${signal}` }).catch(() => {});
     }

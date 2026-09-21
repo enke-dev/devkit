@@ -1,9 +1,13 @@
+/*
+ * The host is the container, and everything in the header hangs off one
+ * element inside it.
+ *
+ * A container is never styled by its own query — the rules inside
+ * `@container` reach its descendants only — so the spacing has to live on
+ * something below the host, or it could not narrow along with the rest.
+ */
 :host {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  min-width: 0;
-  padding: 0 10px;
+  display: block;
   border-bottom: 1px solid var(--border);
   font-size: 11px;
 
@@ -17,6 +21,15 @@
    * not, so nothing hid at all in the app's own chrome, which is WebKit on
    * macOS. Its own host is one boundary away, which every engine resolves. */
   container: pane-header / inline-size;
+}
+
+.bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px;
   /* Nothing in here may wrap. The header is one line tall by construction, so
      a second line does not make the text fit — it pushes it out of sight and
      takes the baseline of everything beside it with it. What does not fit is
@@ -168,6 +181,13 @@ ph-sun {
    Measured against the header itself, which is the pane's width — see the note
    on its container above. */
 @container pane-header (width < 380px) {
+  /* The spacing goes with them. Gaps sized for a header with words in it are
+     too generous for one that is mostly glyphs and numbers, and at this width
+     every one of them is a pixel something else could have used. */
+  .bar {
+    gap: 4px;
+  }
+
   .status .label,
   .name,
   .version {
