@@ -76,6 +76,18 @@ export function restart(): Promise<void> {
 }
 
 /**
+ * Ask macOS for the grant a blocked engine needs.
+ *
+ * Resolves true where the access went through — either because it was granted
+ * just now or because it was never the problem. False means macOS refused
+ * without asking, which is what it does once a decision is on file, and the
+ * only thing left then is to show where that decision lives.
+ */
+export function requestAppDataAccess(): Promise<boolean> {
+  return invoke('request_app_data_access');
+}
+
+/**
  * Open the Settings pane a blocked engine needs a grant from.
  *
  * Opening it is all anyone can do: macOS has no way to ask for these grants,

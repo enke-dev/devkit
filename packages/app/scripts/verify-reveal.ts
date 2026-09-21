@@ -262,9 +262,14 @@ try {
 
   const blockedText = await page.evaluate(() => harness.paneText('firefox'));
   check(
-    'a blocked pane says which permission it wants',
-    blockedText.includes('Full Disk Access'),
+    'a blocked pane offers to ask for the permission',
+    blockedText.includes('Allow access'),
     blockedText || 'the pane said nothing'
+  );
+  check(
+    'a blocked pane does not send anybody to Settings before they were asked',
+    !blockedText.includes('Open Settings'),
+    blockedText
   );
   check(
     'a blocked pane does not quote the browser instead',

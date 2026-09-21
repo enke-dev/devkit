@@ -2134,6 +2134,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         class="panes"
         data-split=${this.split}
         @devkit-install=${(event: CustomEvent<Engine>) => this.requestInstall([event.detail])}
+        @devkit-retry=${(event: CustomEvent<Engine>) => void this.startPanes([event.detail])}
         @devkit-color-scheme=${(event: CustomEvent<{ engine: Engine; scheme: ColorScheme }>) =>
           void this.setColorScheme(event.detail.engine, event.detail.scheme)}
         @devkit-detach=${(event: CustomEvent<Engine>) => void this.detach(event.detail)}

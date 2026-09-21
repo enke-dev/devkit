@@ -29,6 +29,44 @@ fn debug_log(message: String) {
     note!("[ui] {message}");
 }
 
+/// Ask macOS for the one grant a refused Gecko pane needs.
+///
+/// Nothing requests a TCC permission directly — not Tauri, not a plugin, not
+/// macOS itself. The prompt is raised by the access: the first time a
+/// foreground app reads another app's data, the user is asked. Today the read
+/// is made by Firefox, which the sidecar spawned, and nobody is asked; made
+/// from the app, on a click, there is somebody to ask and something to explain.
+///
+/// Full Disk Access can never be reached this way — it has no prompt at all.
+/// App Data can, which is why it is worth trying before sending anyone to
+/// Settings.
+///
+/// `false` means macOS refused rather than asked, which is what happens once a
+/// decision is already on file.
+#[tauri::command]
+fn request_app_data_access() -> Result<bool, String> {
+    if !cfg!(target_os = "macos") {
+        return Ok(true);
+    }
+
+    let home = std::env::var("HOME").map_err(|_| "no home directory".to_string())?;
+    let directory = std::path::Path::new(&home).join("Library/Application Support/Firefox");
+    let read = std::fs::read(directory.join("profiles.ini"))
+        .map(|_| ())
+        // No profiles.ini yet is not a refusal: the directory is what is gated,
+        // and Firefox writes the file itself once it can.
+        .or_else(|error| match error.kind() {
+            std::io::ErrorKind::NotFound => std::fs::read_dir(&directory).map(|_| ()),
+            _ => Err(error),
+        });
+
+    match read {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(true),
+        Err(_) => Ok(false),
+    }
+}
+
 /// Open the Privacy & Security pane a blocked pane needs a grant from.
 ///
 /// Here rather than in the frontend because the frontend is given no shell
@@ -130,6 +168,7 @@ pub fn run() {
             sidecar_send,
             sidecar_restart,
             open_privacy_settings,
+            request_app_data_access,
             debug_log,
             cursors::get_native_cursor_by_type
         ])

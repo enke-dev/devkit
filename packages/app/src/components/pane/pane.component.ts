@@ -15,7 +15,7 @@ import { customElement, property, query, state } from 'lit/decorators.js';
 import { styleMap } from 'lit/directives/style-map.js';
 
 import { DevkitElement } from '../../utils/base.utils.js';
-import { openPrivacySettings } from '../../utils/bridge.utils.js';
+import { openPrivacySettings, requestAppDataAccess } from '../../utils/bridge.utils.js';
 import type { NativeCursor } from '../../utils/cursors.utils.js';
 import { cursorTypeFor, nativeCursor } from '../../utils/cursors.utils.js';
 import type { Timings } from '../../utils/timing.utils.js';
@@ -96,6 +96,16 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
    */
   @state()
   private accessor blocked: PaneBlocker | null = null;
+
+  /**
+   * Whether macOS refused the grant rather than asking for it.
+   *
+   * Only then is Settings worth offering: it is where a decision already made
+   * can be changed, and showing it before anybody has been asked sends people
+   * to a list to solve something a dialog would have solved.
+   */
+  @state()
+  private accessor refused = false;
 
   @state()
   private accessor version = '';
@@ -233,6 +243,7 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
     this.setState(status === 'live' ? 'stream' : status);
     this.detail = detail ?? '';
     this.blocked = blocked ?? null;
+    this.refused = false;
     if (version) {
       this.version = version;
     }
@@ -529,14 +540,49 @@ export class PaneComponent extends DevkitElement.withStyles(styles) {
       <div class="empty">
         <p>macOS blocked ${label} from reading its own profile.</p>
         <p class="progress">
-          Grant DevKit Full Disk Access, then restart it. Firefox reads a file belonging to another
-          app on the way up, and macOS refuses that without the grant.
+          ${label} reads a file belonging to another app on the way up, and macOS refuses that
+          without permission.
+          ${
+            this.refused
+              ? 'It will not ask again, so the grant has to be given in Settings — Full Disk Access, then restart DevKit.'
+              : ''
+          }
         </p>
-        <button type="button" class="install" @click=${() => void openPrivacySettings()}>
-          Open Settings
-        </button>
+        ${
+          this.refused
+            ? html`
+                <button type="button" class="install" @click=${() => void openPrivacySettings()}>
+                  Open Settings
+                </button>
+              `
+            : html`
+                <button type="button" class="install" @click=${() => void this.askForAccess()}>
+                  Allow access…
+                </button>
+              `
+        }
       </div>
     `;
+  }
+
+  /**
+   * Have the app touch the file the engine was refused, so macOS asks.
+   *
+   * The asking is the point: there is no call that requests this permission,
+   * only an access that provokes the question. Where it goes through, the pane
+   * is started again rather than making anybody restart DevKit — the grant is
+   * the app's, and the engine is launched fresh each time anyway.
+   */
+  private async askForAccess(): Promise<void> {
+    const allowed = await requestAppDataAccess();
+    if (!allowed) {
+      this.refused = true;
+      return;
+    }
+    this.blocked = null;
+    this.dispatchEvent(
+      new CustomEvent('devkit-retry', { detail: this.engine, bubbles: true, composed: true })
+    );
   }
 
   /**
