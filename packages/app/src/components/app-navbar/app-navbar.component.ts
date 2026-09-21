@@ -2,7 +2,7 @@ import '../address-bar/address-bar.component.js';
 import '../icon-button/icon-button.component.js';
 // Per icon, not the whole family: the barrel registers every element there is.
 import '@phosphor-icons/webcomponents/PhArrowClockwise';
-import '@phosphor-icons/webcomponents/PhBug';
+import '@phosphor-icons/webcomponents/PhTerminalWindow';
 import '@phosphor-icons/webcomponents/PhCaretLeft';
 import '@phosphor-icons/webcomponents/PhCaretRight';
 import '@phosphor-icons/webcomponents/PhSquareSplitHorizontal';
@@ -123,7 +123,7 @@ export class AppNavbarComponent extends DevkitElement.withStyles(styles) {
           label=${this.inspecting ? 'Hide the inspector' : 'Show the inspector'}
           @click=${() => this.emit('devkit-inspector', !this.inspecting)}
         >
-          <ph-bug></ph-bug>
+          <ph-terminal-window></ph-terminal-window>
         </devkit-icon-button>
         ${when(
           this.upToDate,
