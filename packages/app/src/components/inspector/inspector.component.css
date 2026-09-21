@@ -364,12 +364,19 @@ summary {
   list-style: none;
 }
 
+/* Two columns and two rows, the same shape at every width — what used to
+   happen only in a narrow drawer, where the source wrapped under the message
+   of its own accord, now happens on purpose and everywhere.
+
+   Who said it above when it was said; what was said above where it came from.
+   The second row is a footer across both columns in effect, which is why the
+   time and the source sit level with each other. */
 .log li {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 0 8px;
   align-items: baseline;
-  padding: 2px 4px;
+  padding: 3px 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   font:
     11px/1.6 ui-monospace,
@@ -386,10 +393,42 @@ summary {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
+.said {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
 .log .text {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+/* The column under the engine, holding the time at the same size and weight —
+   neither is the message, and both say where it came from. */
+.log .when {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Indented under the message rather than under the engine, because it belongs
+   to the message: it is where that line was printed. */
+.log .where {
+  grid-column: 2;
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.log .stack {
+  grid-column: 2;
 }
 
 .log li[data-level='debug'] .text {

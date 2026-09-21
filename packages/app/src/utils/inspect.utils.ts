@@ -189,6 +189,19 @@ export function levelOf(entry: ConsoleEntry): 'log' | 'debug' | 'info' | 'warn' 
   return entry.type === 'page-error' ? 'error' : entry.level;
 }
 
+/**
+ * When an entry arrived, to the millisecond.
+ *
+ * Milliseconds and not less, because a page can print several within one of
+ * them — which is exactly why entries carry a sequence number as well as a
+ * time, and why the two together are what puts three engines in one order.
+ */
+export function timeOf(entry: ConsoleEntry): string {
+  const at = new Date(entry.at);
+  const pad = (value: number, width = 2) => String(value).padStart(width, '0');
+  return `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}.${pad(at.getMilliseconds(), 3)}`;
+}
+
 /** What an entry actually says, which for an error is its message. */
 export function textOf(entry: ConsoleEntry): string {
   return entry.type === 'page-error' ? entry.message : entry.text;

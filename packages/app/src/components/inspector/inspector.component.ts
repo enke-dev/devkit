@@ -28,6 +28,7 @@ import {
   identitySteps,
   levelOf,
   textOf,
+  timeOf,
 } from '../../utils/inspect.utils.js';
 import type { InspectorDock } from '../../utils/layout.utils.js';
 import { INSPECTOR_DOCKS } from '../../utils/layout.utils.js';
@@ -541,24 +542,27 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
     return html`
       <li data-level=${level} data-engine=${entry.engine}>
         <span class="engine">${ENGINE_LABELS[entry.engine]}</span>
-        ${
-          entry.type === 'console' && entry.kind !== 'message'
-            ? html`<span class="kind" title=${entry.nativeKind}>${entry.kind}</span>`
-            : nothing
-        }
-        <span class="text">${textOf(entry)}</span>
-        ${
-          entry.type === 'console' && entry.repeats
-            ? html`<span class="repeats">×${entry.repeats}</span>`
-            : nothing
-        }
-        ${
-          entry.dropped
-            ? html`<span class="dropped" title="Messages discarded to keep up">
-                +${entry.dropped} dropped
-              </span>`
-            : nothing
-        }
+        <span class="when">${timeOf(entry)}</span>
+        <div class="said">
+          ${
+            entry.type === 'console' && entry.kind !== 'message'
+              ? html`<span class="kind" title=${entry.nativeKind}>${entry.kind}</span>`
+              : nothing
+          }
+          <span class="text">${textOf(entry)}</span>
+          ${
+            entry.type === 'console' && entry.repeats
+              ? html`<span class="repeats">×${entry.repeats}</span>`
+              : nothing
+          }
+          ${
+            entry.dropped
+              ? html`<span class="dropped" title="Messages discarded to keep up">
+                  +${entry.dropped} dropped
+                </span>`
+              : nothing
+          }
+        </div>
         ${
           entry.type === 'console' && entry.location
             ? html`<span class="where"
