@@ -76,6 +76,11 @@ if (process.argv.includes('--child')) {
   process.exit(0);
 }
 
+if (process.platform !== 'darwin') {
+  console.log('\nOnly macOS withholds this grant; nothing to verify here.');
+  process.exit(0);
+}
+
 const out = join(tmpdir(), `devkit-blocked-${process.pid}.json`);
 rmSync(out, { force: true });
 
