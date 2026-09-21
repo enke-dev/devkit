@@ -5,21 +5,13 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  border-top: 1px solid var(--border);
   background: var(--bg-raised);
   font-size: 12px;
 }
 
-/* The rule goes along whichever edge the drawer is actually against. */
-:host([dock='right']) {
-  border-top: 0;
-  border-left: 1px solid var(--border);
-}
-
-:host([dock='left']) {
-  border-top: 0;
-  border-right: 1px solid var(--border);
-}
+/* No edge of its own. Attached, the divider beside it draws the one line there
+   should be — the drawer drawing a second immediately against it is what made
+   the separator look doubled. Detached, the window frame is the edge. */
 
 /* The glyph reads as a panel filling the left half; docked right is its
    mirror, and Phosphor ships only the one. */

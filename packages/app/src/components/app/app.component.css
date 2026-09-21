@@ -78,10 +78,14 @@ devkit-app-navbar {
 
 /* Wider than the line it draws. A one-pixel border is the right amount of ink
    and quite the wrong amount of target, so the element is a few pixels of hit
-   area with the line painted down the middle of it. */
+   area with the line painted down the middle of it.
+
+   It takes the colour of the surfaces it sits between rather than the page
+   behind them. Left as the page colour it read as a band with a rule inside
+   it, which is two edges where the layout has one. */
 .divider {
   position: relative;
-  background: var(--bg);
+  background: var(--bg-raised);
   touch-action: none;
 }
 
