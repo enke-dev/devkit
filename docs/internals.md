@@ -47,6 +47,19 @@ fights, and crashes from resizing real windows out from under their owners.
 the private Juggler protocol, which is why it works at all — so it must be Playwright's own binary,
 never a system install.
 
+**A container query only reaches one shadow boundary up, in WebKit.** The pane headers shrink by
+measuring themselves against a container query, and the obvious container is the pane — but the
+rules live in the header's shadow root, which is two boundaries below the pane's host. Measured in
+all three engines with a reduced case: Chromium and Gecko resolve a named container across that,
+WebKit does not, and it fails silently — nothing hides, no warning. Since the app's own chrome is
+WebKit on macOS, that is the configuration that matters most. The container therefore sits on the
+header's own host, one boundary away, which every engine resolves. It is the same width either way.
+
+**`pointerleave` never reaches the window.** It does not bubble, so a listener on `window` is never
+called — measured in all three engines, where leaving the page fired nothing there. What does fire
+is `pointerout` with a null `relatedTarget`, which is how the app notices the pointer has left
+altogether and takes the stand-in cursors down with it.
+
 **Every pane is anonymous.** Each engine gets `browser.newContext()` with no persistent profile.
 Playwright keeps that state in memory and discards it on close, so no cookies, cache or history
 survive a session.

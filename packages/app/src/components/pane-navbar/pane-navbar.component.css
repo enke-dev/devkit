@@ -6,6 +6,17 @@
   padding: 0 10px;
   border-bottom: 1px solid var(--border);
   font-size: 11px;
+
+  /* The header measures itself, rather than the pane around it.
+   *
+   * It wants the pane's width and it has exactly that, being the full width of
+   * it — so the two are the same question. What differs is how far the answer
+   * has to travel: a container on the pane is two shadow boundaries away from
+   * these rules, and WebKit does not resolve a named container across that.
+   * Measured in all three: Chromium and Gecko find it, WebKit silently does
+   * not, so nothing hid at all in the app's own chrome, which is WebKit on
+   * macOS. Its own host is one boundary away, which every engine resolves. */
+  container: pane-header / inline-size;
   /* Nothing in here may wrap. The header is one line tall by construction, so
      a second line does not make the text fit — it pushes it out of sight and
      takes the baseline of everything beside it with it. What does not fit is
@@ -155,7 +166,7 @@ ph-sun {
    goes first, because the dot it sits beside already carries the state in
    colour. The engine's name and build go next, because the mark still says
    which engine this is and the flyout gives the rest back on demand. */
-@container pane (width < 380px) {
+@container pane-header (width < 380px) {
   .status .label {
     display: none;
   }
@@ -165,7 +176,7 @@ ph-sun {
   }
 }
 
-@container pane (width < 300px) {
+@container pane-header (width < 300px) {
   .name,
   .version {
     display: none;

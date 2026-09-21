@@ -445,12 +445,20 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * The pointer left the window.
    *
    * A pane only hears about a pointer that leaves it for somewhere else in the
-   * window. Leaving the window altogether — up to the toolbar, out to another
-   * app — is only said once, here.
+   * window. Leaving the window altogether — out to another application, off
+   * the side of the screen — is only said once, here.
+   *
+   * `pointerout` with nothing on the other side of it, rather than
+   * `pointerleave`: leave does not bubble, so a listener on the window never
+   * hears it at all. Measured in all three engines — leaving the page fired
+   * nothing on the window and this handler had never once run, which is why
+   * the stand-ins stayed drawn in panes the pointer had long left.
    */
-  @listenWindow('pointerleave')
-  protected handlePointerLeave(): void {
-    this.clearCursors();
+  @listenWindow('pointerout')
+  protected handlePointerLeave(event: PointerEvent): void {
+    if (event.relatedTarget === null) {
+      this.clearCursors();
+    }
   }
 
   private forwardKey(event: KeyboardEvent, kind: 'keydown' | 'keyup'): void {
