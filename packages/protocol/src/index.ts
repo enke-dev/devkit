@@ -132,6 +132,81 @@ export type Command =
    */
   | { type: 'remeasure'; engine: Engine | 'all' }
   /**
+   * The document element of one pane, or of all of them, with a few levels
+   * already in hand.
+   *
+   * The first command in the protocol that hands out *references*. Everything
+   * around it identifies an element by the point it was found at, which is what
+   * lets three engines be asked one question — but a tree is navigated rather
+   * than pointed at, and a row that cannot be asked about again is a row that
+   * cannot be opened. So the walker keeps a registry and these commands trade
+   * in its keys.
+   *
+   * A `nodeId` is only ever valid in the pane that issued it and only until
+   * that pane navigates: it carries the document's generation, and the walker
+   * refuses one from a document it no longer is. Nothing may compare two panes'
+   * ids, which is why `DomNode` also carries `step` — the engine-neutral
+   * identity that `dom-resolve` trades in.
+   *
+   * `depth` is how many levels to send unasked, two by default. One level means
+   * a round trip per twisty on the way down; the whole tree means megabytes for
+   * a page nobody will open a tenth of.
+   *
+   * Answered by `dom-nodes` events carrying this command's `id`.
+   */
+  | { type: 'dom-root'; engine: Engine | 'all'; depth?: number }
+  /**
+   * The children of one node, for the twisty that was just opened.
+   *
+   * Answered by `dom-nodes` events carrying this command's `id`. A pane whose
+   * id has gone stale — the page navigated under it — answers with an empty
+   * list and an error, rather than with somebody else's subtree.
+   */
+  | { type: 'dom-children'; engine: Engine | 'all'; nodeId: string; depth?: number }
+  /**
+   * Everything the styles panel shows about the element a row stands for, in
+   * every pane at once.
+   *
+   * Addressed by identity rather than by handle, which is what lets one command
+   * ask all three. A handle belongs to the pane that minted it, so a
+   * handle-addressed describe would be three commands with three ids and three
+   * separate collections of answers; `steps` is the engine-neutral chain — tag,
+   * position among same-tag siblings, and the boundary each step crossed —
+   * which every pane can walk down for itself.
+   *
+   * A pane that has no such element answers with a null element, which is a
+   * finding rather than a failure: it means the engines built different trees,
+   * which is the thing this app exists to show.
+   *
+   * Answered by `inspected` events, exactly as `inspect` is — the same event,
+   * because the tree changed how an element is *named*, not what is said about
+   * it, and the app collects three answers to one question either way.
+   */
+  | { type: 'dom-describe'; engine: Engine | 'all'; steps: string[] }
+  /**
+   * The nodes matching a selector, or holding a piece of text.
+   *
+   * One engine rather than all three: searching is how somebody gets to a node,
+   * and the selection that follows is what the other panes are asked to match.
+   * Running it everywhere would produce three result lists nobody asked to
+   * reconcile.
+   *
+   * Answered by `dom-found` events carrying this command's `id`.
+   */
+  | { type: 'dom-search'; engine: Engine; query: string; limit?: number }
+  /**
+   * Which subtrees the app is actually showing, so the panes can say when they
+   * change.
+   *
+   * The whole set every time rather than a diff: it is small — what is expanded
+   * on screen — and a diff protocol would need the two sides to agree about a
+   * history neither keeps. An empty set turns the watch off entirely, which is
+   * the state every session that never opens the inspector stays in.
+   *
+   * Acked only. What it produces afterwards is `dom-mutated`.
+   */
+  | { type: 'dom-watch'; engine: Engine | 'all'; nodeIds: string[] }
+  /**
    * Evaluate an expression in one pane's page, or in all of them at once.
    *
    * The `engine: Engine | 'all'` shape is `input`'s, for the same reason: the
@@ -272,6 +347,40 @@ export type Event =
       element: InspectedElement | null;
       error?: string;
     }
+  /**
+   * A slice of one engine's DOM tree, answering a `dom-root` or `dom-children`.
+   *
+   * `id` is the command's, the way `inspected` carries it and for the same
+   * reason: three panes answer one question independently and in no order.
+   *
+   * `nodes` is the requested level, each node carrying however many of its own
+   * levels the command's `depth` asked for. An `error` with an empty list means
+   * the pane could not be asked — a stale id, most often, which is what a
+   * navigation turns every outstanding id into.
+   */
+  | { type: 'dom-nodes'; id: string; engine: Engine; nodes: DomNode[]; error?: string }
+  /** What a `dom-search` matched, in document order and capped by its limit. */
+  | { type: 'dom-found'; id: string; engine: Engine; matches: DomMatch[] }
+  /**
+   * What changed inside the subtrees this pane was asked to watch.
+   *
+   * Volunteered rather than answered, so it carries no request id. Coalesced
+   * per node before it is sent: a framework re-rendering a list produces
+   * hundreds of records describing a handful of nodes, and the app only ever
+   * wanted to know which rows to redraw.
+   */
+  | { type: 'dom-mutated'; engine: Engine; changes: DomChange[] }
+  /**
+   * Everything this pane said about its tree is void — start again from
+   * `dom-root`.
+   *
+   * Two causes, deliberately not distinguished: the document was replaced, or
+   * so much of it changed at once that describing the changes costs more than
+   * refetching what is on screen. Either way every `nodeId` the app holds for
+   * this engine is now worthless, and the only safe answer is to say so rather
+   * than to let stale ids resolve to whatever inherited their numbers.
+   */
+  | { type: 'dom-invalidated'; engine: Engine }
   /** What one engine made of an `evaluate` expression; `id` correlates. */
   | { type: 'evaluated'; id: string; engine: Engine; result: EvaluatedValue }
   /**
@@ -495,7 +604,179 @@ export interface InspectedElement {
    * further than another would look like a DOM difference rather than a limit.
    */
   pierceNote?: string;
+  /**
+   * The walker's handle for this element, when one was minted.
+   *
+   * Present on anything the tree commands produced, and on a point `inspect`
+   * too — picking an element and then finding it in the tree is one gesture,
+   * and without this the app would have to search the tree for something it is
+   * already holding.
+   *
+   * Absent rather than null when the pane has no registry yet, which is every
+   * pane nobody has opened the Elements tab on.
+   */
+  nodeId?: string;
+  /**
+   * The same element's ancestors as handles, outermost first, so the tree can
+   * be opened down to it.
+   *
+   * `path` says the same thing as descriptions; this says it as references.
+   * Both, because they answer different questions — one is shown to a person
+   * and the other is handed back to the engine.
+   */
+  ancestors?: string[];
 }
+
+/**
+ * What kind of node a tree row stands for.
+ *
+ * Wider than "element" because a DOM view that hides everything else lies about
+ * the tree: a page whose layout depends on a stray text node shows nothing to
+ * explain itself, and the comment a build tool left behind is often the reason
+ * two engines disagree about an `:nth-child`.
+ *
+ * `shadow-root` and `frame-document` are not really nodes at all — they are the
+ * boundaries, given a row each so the tree can show that one was crossed.
+ * Chrome's tree does the same, and for the same reason: an element whose
+ * children silently come from somewhere else is unreadable.
+ */
+export type DomNodeKind =
+  'element' | 'text' | 'comment' | 'document' | 'doctype' | 'shadow-root' | 'frame-document';
+
+/**
+ * One row of the tree.
+ *
+ * A description *and* a reference, which nothing else in this protocol is. The
+ * reference (`nodeId`) belongs to one pane and dies with its document; the
+ * identity (`step`) belongs to no pane and is how the three are lined up. Both
+ * travel because the app needs both on every row and asking twice would double
+ * the traffic of the thing it is trying to keep cheap.
+ */
+export interface DomNode {
+  /** This pane's handle, valid until this pane navigates. */
+  nodeId: string;
+  kind: DomNodeKind;
+  /** `div`, `my-card`, `#text`, `#comment`, `#shadow-root`. */
+  name: string;
+  id?: string;
+  classes: string[];
+  /** Everything but `id` and `class`, which have their own fields, in document order. */
+  attributes: [name: string, value: string][];
+  /** The text of a text or comment node, truncated; absent for elements. */
+  value?: string;
+  /**
+   * How many children this node has, whether or not any were sent.
+   *
+   * What decides whether a row gets a twisty. Counted rather than inferred from
+   * `children`, because a depth-limited answer has children it did not send and
+   * a row that refuses to open is worse than one that opens onto nothing.
+   */
+  childCount: number;
+  /** As many levels as the command's `depth` asked for; absent at the cut. */
+  children?: DomNode[];
+  /**
+   * The engine-neutral identity of this step — `#main`, `div[2]`, `shadow>div[0]`.
+   *
+   * The same vocabulary `ElementRef` produces, so a chain of these is what
+   * `dom-resolve` takes and what tells two panes they are looking at one
+   * element. Deliberately not the id or the classes: those are what the engines
+   * are being compared *on*, and an identity that moved when a class did would
+   * call one element two.
+   */
+  step: string;
+  /**
+   * Why this subtree stops here, when it does — a closed shadow root, a
+   * cross-origin frame.
+   *
+   * Said rather than left to look like a leaf. An engine that could see one
+   * boundary further than another would otherwise read as a DOM difference
+   * rather than as the limit it is.
+   */
+  note?: string;
+  /**
+   * Which of `::before` and `::after` actually render on this element.
+   *
+   * Generated content has no node to stand for it, so it is reported on its
+   * originating element and drawn as a child row. Decided from the computed
+   * `content`, which is the only way to ask from inside the page — and a real
+   * source of engine disagreement, which makes it worth the two extra
+   * `getComputedStyle` calls a row costs.
+   */
+  pseudo?: ('before' | 'after')[];
+}
+
+/** One `dom-search` hit, with the handles needed to open the tree down to it. */
+export interface DomMatch {
+  nodeId: string;
+  /** Ancestors outermost first, so every twisty on the way can be opened. */
+  ancestors: string[];
+  /** What the row will say, so a result list can be drawn before it is revealed. */
+  label: string;
+}
+
+/**
+ * One coalesced change inside a watched subtree.
+ *
+ * Deliberately not a mutation record. A record says what happened; these say
+ * what is now true, which is the only thing a redraw needs and the only thing
+ * that survives being folded together. Fifty insertions into one list arrive as
+ * a single `children` change naming the list.
+ */
+export type DomChange =
+  /** This node's child list is different; refetch it if it is open. */
+  | { kind: 'children'; nodeId: string; childCount: number }
+  /** This element's attributes are different, in full rather than as a delta. */
+  | {
+      kind: 'attributes';
+      nodeId: string;
+      id?: string;
+      classes: string[];
+      attributes: [name: string, value: string][];
+    }
+  /** This text or comment node says something else now. */
+  | { kind: 'value'; nodeId: string; value: string }
+  /** This node has left the document; its row and its subtree go with it. */
+  | { kind: 'removed'; nodeId: string };
+
+/**
+ * How many levels a tree command sends when it is not told.
+ *
+ * Two, which is one more than the row that was opened. Opening a twisty is
+ * nearly always followed by opening one of the twisties it revealed, and the
+ * second level costs a fraction of the round trip that would otherwise fetch
+ * it.
+ */
+export const DOM_TREE_DEPTH = 2;
+
+/**
+ * How often a pane with something expanded is asked what changed.
+ *
+ * Polled rather than pushed, and that is a deliberate trade. Pushing means
+ * `exposeBinding`, which puts a second function of ours on the page's global
+ * object for the life of the context — and the walker's whole bargain is that
+ * it defines one non-enumerable property and nothing else, because the page is
+ * somebody else's. A poll costs one evaluation per watching pane per interval
+ * and nothing at all when nothing is watched, which is every session that never
+ * opens the Elements tab.
+ *
+ * The number is the same order as the inspector's other samples: slower than a
+ * frame, faster than anybody notices a row being stale.
+ */
+export const DOM_WATCH_POLL_MS = 250;
+
+/**
+ * How many coalesced changes are worth describing before it is cheaper to say
+ * "start again".
+ *
+ * A page that replaces its whole body — a route change, a hydration pass —
+ * produces changes touching every row at once, and sending them is both slower
+ * than a refetch and useless: the app would apply hundreds of edits to arrive
+ * at a tree it could have asked for outright.
+ */
+export const DOM_CHANGE_BURST = 200;
+
+/** Longest text a tree row carries; the rest is an ellipsis. */
+export const DOM_VALUE_PREVIEW = 120;
 
 /**
  * What an expression produced, described rather than returned.

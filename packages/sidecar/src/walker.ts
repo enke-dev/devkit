@@ -1,4 +1,10 @@
-import { INSPECTED_PROPERTIES, STYLE_VALUE_PRECISION } from '@devkit/protocol';
+import {
+  DOM_CHANGE_BURST,
+  DOM_TREE_DEPTH,
+  DOM_VALUE_PREVIEW,
+  INSPECTED_PROPERTIES,
+  STYLE_VALUE_PRECISION,
+} from '@devkit/protocol';
 
 /**
  * The name the walker is installed under in the page.
@@ -35,6 +41,23 @@ export const WALKER_SOURCE = `(() => {
 
   const PROPERTIES = ${JSON.stringify(INSPECTED_PROPERTIES)};
   const PRECISION = ${STYLE_VALUE_PRECISION};
+  const TREE_DEPTH = ${DOM_TREE_DEPTH};
+  const VALUE_PREVIEW = ${DOM_VALUE_PREVIEW};
+  const CHANGE_BURST = ${DOM_CHANGE_BURST};
+
+  const ELEMENT_NODE = 1;
+  const TEXT_NODE = 3;
+  const COMMENT_NODE = 8;
+  const DOCUMENT_NODE = 9;
+  const DOCTYPE_NODE = 10;
+  const FRAGMENT_NODE = 11;
+
+  /** Widest child list sent in one answer; the rest is reported but not described. */
+  const MAX_CHILDREN = 1000;
+  /** Most roots a search will descend into, counting shadow roots and frames. */
+  const MAX_ROOTS = 200;
+  /** Most nodes a search will report. */
+  const MAX_MATCHES = 50;
 
   /** Enough rules to explain an element, few enough to stay a message. */
   const MAX_RULES = 60;
@@ -532,13 +555,14 @@ export const WALKER_SOURCE = `(() => {
    * The descent is shared with the cursor probe below: both questions are
    * "which element is at this point", and only what is read off it differs.
    */
-  const inspect = (x, y) => {
-    const found = resolve(x, y);
-    if (!found) {
-      return null;
-    }
-    const { element, offsetX: elementOffsetX, offsetY: elementOffsetY, pierceNote } = found;
-
+  /**
+   * Everything the panels say about one element, wherever it was found.
+   *
+   * Split out from the point inspect once the tree arrived: a row that was clicked and
+   * a point that was pointed at deserve exactly the same description, and the
+   * only difference between them is how the element was reached.
+   */
+  const describeElement = (element, offsetX, offsetY, pierceNote) => {
     const style = viewOf(element).getComputedStyle(element);
     const matched = rulesFor(element);
     const result = {
@@ -548,11 +572,13 @@ export const WALKER_SOURCE = `(() => {
       attributes: attributesOf(element),
       path: pathOf(element),
       documentUrl: element.ownerDocument ? element.ownerDocument.URL : '',
-      box: boxOf(element, elementOffsetX, elementOffsetY),
+      box: boxOf(element, offsetX, offsetY),
       styles: Object.fromEntries(
         PROPERTIES.map(property => [property, normalise(property, style.getPropertyValue(property))])
       ),
       rules: matched.rules,
+      nodeId: handle(element),
+      ancestors: ancestorsOf(element),
     };
     if (element.id) {
       result.id = element.id;
@@ -563,6 +589,16 @@ export const WALKER_SOURCE = `(() => {
     if (pierceNote) {
       result.pierceNote = pierceNote;
     }
+    return result;
+  };
+
+  const inspect = (x, y) => {
+    const found = resolve(x, y);
+    if (!found) {
+      return null;
+    }
+    const { element, offsetX: elementOffsetX, offsetY: elementOffsetY, pierceNote } = found;
+    const result = describeElement(element, elementOffsetX, elementOffsetY, pierceNote);
     selected = element;
     selection = result;
     return result;
@@ -750,8 +786,583 @@ export const WALKER_SOURCE = `(() => {
     stack: error && error.stack ? String(error.stack).slice(0, 4000) : undefined,
   });
 
+  // -------------------------------------------------------------------------
+  // The tree
+  // -------------------------------------------------------------------------
+
+  /**
+   * A name for this document, minted once and carried by every handle it hands
+   * out.
+   *
+   * Handles are numbers, and numbers start again at one in the next document. A
+   * navigation therefore turns every id the app is holding into an id that
+   * still looks valid and now means something else — which is the one failure
+   * mode a reference-based protocol must not have. Prefixing them with a name
+   * nobody else will mint makes a stale id refuse rather than lie.
+   */
+  const GEN = Math.random().toString(36).slice(2, 8);
+
+  let nextHandle = 0;
+  const handles = new WeakMap();
+  const registry = new Map();
+
+  /**
+   * This document's handle for a node, minted on first sight.
+   *
+   * The reverse map holds a weak reference rather than the node: the registry
+   * is written to by everything that draws a row and is never told when a node
+   * leaves the document, so a strong map would keep every node the inspector
+   * ever looked at alive for the life of the page.
+   */
+  const handle = node => {
+    const existing = handles.get(node);
+    if (existing !== undefined) {
+      return existing;
+    }
+    nextHandle += 1;
+    const id = GEN + ':' + nextHandle;
+    handles.set(node, id);
+    registry.set(id, typeof WeakRef === 'function' ? new WeakRef(node) : { deref: () => node });
+    return id;
+  };
+
+  /** The node behind a handle, or null if it is stale, collected or somebody else's. */
+  const nodeFor = id => {
+    if (typeof id !== 'string' || id.indexOf(GEN + ':') !== 0) {
+      return null;
+    }
+    const ref = registry.get(id);
+    const node = ref ? ref.deref() : null;
+    if (!node) {
+      registry.delete(id);
+      return null;
+    }
+    return node;
+  };
+
+  const kindOf = node => {
+    switch (node.nodeType) {
+      case ELEMENT_NODE:
+        return 'element';
+      case TEXT_NODE:
+        return 'text';
+      case COMMENT_NODE:
+        return 'comment';
+      case DOCTYPE_NODE:
+        return 'doctype';
+      case DOCUMENT_NODE:
+        return node.defaultView && node.defaultView.frameElement ? 'frame-document' : 'document';
+      case FRAGMENT_NODE:
+        return node.host ? 'shadow-root' : 'document';
+      default:
+        return 'text';
+    }
+  };
+
+  const nameOf = (node, kind) => {
+    if (kind === 'element') {
+      return node.tagName ? node.tagName.toLowerCase() : '#unknown';
+    }
+    if (kind === 'text') {
+      return '#text';
+    }
+    if (kind === 'comment') {
+      return '#comment';
+    }
+    if (kind === 'doctype') {
+      return '<!doctype ' + (node.name || 'html') + '>';
+    }
+    if (kind === 'shadow-root') {
+      return '#shadow-root';
+    }
+    return '#document';
+  };
+
+  const truncateValue = value =>
+    value.length > VALUE_PREVIEW ? value.slice(0, VALUE_PREVIEW) + '…' : value;
+
+  /**
+   * Which of the two generated boxes actually render.
+   *
+   * Generated content has no node, so it can only be reported on the element it
+   * belongs to. Worth the two extra reads a row costs: generated content is a
+   * genuine source of engine disagreement, and a tree that omitted it would
+   * show three identical subtrees under an element that looks different in all
+   * three.
+   */
+  const pseudoOf = element => {
+    const view = viewOf(element);
+    if (!view.getComputedStyle) {
+      return [];
+    }
+    return ['before', 'after'].filter(which => {
+      try {
+        const content = view.getComputedStyle(element, '::' + which).content;
+        return Boolean(content) && content !== 'none' && content !== 'normal';
+      } catch (error) {
+        // An engine that will not be asked about a pseudo-element it has no box
+        // for. Not having one is the answer.
+        return false;
+      }
+    });
+  };
+
+  /**
+   * The rows that belong under a node, in the order a tree shows them.
+   *
+   * Boundaries first and as rows of their own, the way every DOM view worth
+   * using does it: an element whose children silently come from a shadow root
+   * or from another document is a tree that cannot be reasoned about.
+   *
+   * Whitespace-only text is left out. It is most of the text nodes on a
+   * formatted page, it is never what anybody opened the tree to find, and the
+   * identity of an element row does not depend on it — the index counts element
+   * siblings of the same tag and never saw it.
+   */
+  const childRowsOf = node => {
+    const rows = [];
+    if (node.nodeType === ELEMENT_NODE) {
+      if (node.shadowRoot) {
+        rows.push({ node: node.shadowRoot, boundary: 'shadow' });
+      }
+      const inner = frameDocumentOf(node);
+      if (inner) {
+        rows.push({ node: inner, boundary: 'frame' });
+      }
+    }
+    const children = node.childNodes ? Array.prototype.slice.call(node.childNodes) : [];
+    children
+      .filter(child => {
+        if (kindOf(child) !== 'text') {
+          return true;
+        }
+        return Boolean(child.nodeValue) && child.nodeValue.trim().length > 0;
+      })
+      .forEach(child => rows.push({ node: child }));
+    return rows;
+  };
+
+  /**
+   * The identity of one row among its siblings.
+   *
+   * The same vocabulary the breadcrumb uses — an id when there is one, else the
+   * tag and its position among same-tag siblings — because this is what one
+   * pane hands another to mean "that element". Text and comment rows are
+   * counted among the rows that survived the whitespace filter, so both sides
+   * agree about which one is the second.
+   */
+  const stepOf = (row, kind, counts) => {
+    if (row.boundary) {
+      return row.boundary;
+    }
+    if (kind === 'element') {
+      return row.node.id
+        ? '#' + row.node.id
+        : row.node.tagName.toLowerCase() + '[' + indexOf(row.node) + ']';
+    }
+    if (kind === 'text' || kind === 'comment') {
+      const seen = counts[kind] || 0;
+      counts[kind] = seen + 1;
+      return '#' + kind + '[' + seen + ']';
+    }
+    return kind;
+  };
+
+  const nodeInfoOf = (node, kind, step, depth) => {
+    const element = kind === 'element';
+    const info = {
+      nodeId: handle(node),
+      kind,
+      name: nameOf(node, kind),
+      classes: element ? classesOf(node) : [],
+      attributes: element ? attributesOf(node) : [],
+      step,
+      childCount: 0,
+    };
+    if (element && node.id) {
+      info.id = node.id;
+    }
+    if (kind === 'text' || kind === 'comment') {
+      info.value = truncateValue(node.nodeValue || '');
+    }
+    if (element) {
+      if (frameDocumentOf(node) === null) {
+        info.note = 'cross-origin frame';
+      }
+      const marks = pseudoOf(node);
+      if (marks.length > 0) {
+        info.pseudo = marks;
+      }
+    }
+
+    const rows = childRowsOf(node);
+    info.childCount = rows.length;
+    if (depth > 0 && rows.length > 0) {
+      info.children = rowsToNodes(rows.slice(0, MAX_CHILDREN), depth - 1);
+    }
+    return info;
+  };
+
+  const rowsToNodes = (rows, depth) => {
+    const counts = {};
+    return rows.map(row => {
+      const kind = kindOf(row.node);
+      return nodeInfoOf(row.node, kind, stepOf(row, kind, counts), depth);
+    });
+  };
+
+  /** The whole document as one row, with as many levels below it as were asked for. */
+  const tree = depth => [
+    nodeInfoOf(
+      globalThis.document,
+      'document',
+      'document',
+      typeof depth === 'number' ? depth : TREE_DEPTH
+    ),
+  ];
+
+  /**
+   * One node's children.
+   *
+   * Null rather than an empty list when the handle is stale, because the two
+   * mean opposite things: a node with no children is a leaf, and a handle from
+   * the last document is a tree the app has to throw away.
+   */
+  const childrenOf = (id, depth) => {
+    const node = nodeFor(id);
+    if (!node) {
+      return null;
+    }
+    return rowsToNodes(
+      childRowsOf(node).slice(0, MAX_CHILDREN),
+      typeof depth === 'number' ? depth : TREE_DEPTH - 1
+    );
+  };
+
+  /** The row a node sits under, crossing the two boundaries the tree shows. */
+  const parentOf = node => {
+    if (node.nodeType === FRAGMENT_NODE && node.host) {
+      return node.host;
+    }
+    if (node.nodeType === DOCUMENT_NODE) {
+      return (node.defaultView && node.defaultView.frameElement) || null;
+    }
+    return node.parentNode || null;
+  };
+
+  /**
+   * A node's ancestors as handles, outermost first.
+   *
+   * What the app opens on the way to revealing a row it did not walk down to —
+   * a search hit, or the element the picker just landed on. The chain is the
+   * tree's rather than the DOM's: it includes the shadow-root and
+   * frame-document rows, because those are twisties somebody has to open.
+   */
+  const ancestorsOf = node => {
+    const chain = [];
+    let current = node;
+    let depth = 0;
+    while (current && depth < MAX_DEPTH * 16) {
+      depth += 1;
+      const parent = parentOf(current);
+      if (!parent) {
+        break;
+      }
+      chain.push(parent);
+      current = parent;
+    }
+    return chain.reverse().map(handle);
+  };
+
+  /**
+   * The node this pane has that answers to another pane's identity chain.
+   *
+   * Walked down rather than looked up: the chain is engine-neutral by design
+   * and there is nothing to look it up in. Each level is described far enough
+   * to compare steps and no further, so resolving a deep selection costs one
+   * shallow pass per level rather than a tree.
+   */
+  const resolveSteps = steps => {
+    const wanted = Array.isArray(steps) ? steps : [];
+    const from = wanted[0] === 'document' ? wanted.slice(1) : wanted;
+    const found = from.reduce((current, step) => {
+      if (!current) {
+        return null;
+      }
+      const counts = {};
+      const hit = childRowsOf(current).find(
+        row => stepOf(row, kindOf(row.node), counts) === step
+      );
+      return hit ? hit.node : null;
+    }, globalThis.document);
+    return found ? handle(found) : null;
+  };
+
+  /** Every root a search should look in: this document, its open shadow roots, its frames. */
+  const allRoots = () => {
+    const roots = [];
+    const visit = (root, depth) => {
+      if (depth > MAX_DEPTH || roots.length >= MAX_ROOTS || !root.querySelectorAll) {
+        return;
+      }
+      roots.push(root);
+      Array.prototype.slice.call(root.querySelectorAll('*')).forEach(element => {
+        if (element.shadowRoot) {
+          visit(element.shadowRoot, depth + 1);
+        }
+        const inner = frameDocumentOf(element);
+        if (inner) {
+          visit(inner, depth + 1);
+        }
+      });
+    };
+    visit(globalThis.document, 0);
+    return roots;
+  };
+
+  /**
+   * What matches a query, as a selector first and as text if that found nothing.
+   *
+   * The order matters and the fallback is not a guess: div is a valid selector
+   * and also a word somebody might be looking for, and answering with every div
+   * on the page is the more useful of the two readings. Text is what is left
+   * when the selector matched nothing or would not parse at all.
+   */
+  const searchNodes = (query, limit) => {
+    const cap = typeof limit === 'number' ? limit : MAX_MATCHES;
+    const roots = allRoots();
+    const matched = [];
+    const add = node => {
+      if (matched.length < cap && matched.indexOf(node) === -1) {
+        matched.push(node);
+      }
+    };
+
+    roots.forEach(root => {
+      try {
+        Array.prototype.slice.call(root.querySelectorAll(query)).forEach(add);
+      } catch (error) {
+        // Not a selector this engine will parse. The text pass below is the
+        // answer, and an invalid selector is not worth reporting as a failure.
+      }
+    });
+
+    if (matched.length === 0) {
+      const needle = query.toLowerCase();
+      roots.forEach(root => {
+        Array.prototype.slice.call(root.querySelectorAll('*')).forEach(element => {
+          // The element's own text, not its subtree's: matching descendants'
+          // text would report every ancestor up to the document for every hit.
+          const own = Array.prototype.slice
+            .call(element.childNodes)
+            .filter(child => child.nodeType === TEXT_NODE)
+            .map(child => child.nodeValue || '')
+            .join(' ')
+            .toLowerCase();
+          const attributes = Array.prototype.slice
+            .call(element.attributes || [])
+            .map(attribute => attribute.name + '=' + attribute.value)
+            .join(' ')
+            .toLowerCase();
+          const tag = element.tagName ? element.tagName.toLowerCase() : '';
+          if (
+            own.indexOf(needle) !== -1 ||
+            attributes.indexOf(needle) !== -1 ||
+            tag.indexOf(needle) !== -1
+          ) {
+            add(element);
+          }
+        });
+      });
+    }
+
+    return matched.map(node => ({
+      nodeId: handle(node),
+      ancestors: ancestorsOf(node),
+      label: previewOf(node),
+    }));
+  };
+
+  /**
+   * Everything the panels say about the element an identity chain names.
+   *
+   * By chain rather than by handle because this is asked of all three panes at
+   * once, and a handle means nothing in a pane that did not mint it. The pane
+   * that owns the tree walks the same chain as the other two and arrives where
+   * it started, which costs one shallow pass per level and keeps one command
+   * answering for everybody.
+   */
+  const describeSteps = steps => {
+    const id = resolveSteps(steps);
+    return id === null ? null : describeNode(id);
+  };
+
+  /** Everything the panels say about a node that was picked from the tree. */
+  const describeNode = id => {
+    const element = nodeFor(id);
+    if (!element || element.nodeType !== ELEMENT_NODE) {
+      return null;
+    }
+    const offset = offsetOf(element);
+    const result = describeElement(element, offset.x, offset.y, '');
+    // The same slot a point inspect fills, so the highlight follows a row that
+    // was clicked exactly as it follows an element that was pointed at.
+    selected = element;
+    selection = result;
+    return result;
+  };
+
+  // -------------------------------------------------------------------------
+  // Watching
+  // -------------------------------------------------------------------------
+
+  const watched = new Set();
+  const observers = new Map();
+  let pendingChanges = new Map();
+  let overflowed = false;
+
+  const isWatched = node => {
+    const id = node ? handles.get(node) : undefined;
+    return id !== undefined && watched.has(id);
+  };
+
+  /** Whether a node has a row on screen: it is expanded, or its parent is. */
+  const onScreen = node => isWatched(node) || isWatched(parentOf(node));
+
+  const noteChange = (kind, node, extra) => {
+    const id = handles.get(node);
+    if (id === undefined) {
+      return;
+    }
+    pendingChanges.set(kind + ':' + id, Object.assign({ kind, nodeId: id }, extra));
+    if (pendingChanges.size > CHANGE_BURST) {
+      overflowed = true;
+    }
+  };
+
+  /**
+   * Turn mutation records into statements about what is now true.
+   *
+   * Records say what happened, which does not fold: fifty insertions into one
+   * list are fifty records and one fact. Keying by node and kind collapses them
+   * on arrival, so a page animating its own DOM costs a constant amount of
+   * memory between drains rather than a growing log.
+   */
+  const onRecords = records => {
+    records.forEach(record => {
+      if (record.type === 'childList') {
+        if (isWatched(record.target)) {
+          noteChange('children', record.target, {
+            childCount: childRowsOf(record.target).length,
+          });
+        }
+        Array.prototype.slice.call(record.removedNodes).forEach(gone => {
+          const id = handles.get(gone);
+          if (id !== undefined) {
+            pendingChanges.set('removed:' + id, { kind: 'removed', nodeId: id });
+          }
+        });
+        return;
+      }
+      if (record.type === 'attributes' && onScreen(record.target)) {
+        const element = record.target;
+        const extra = { classes: classesOf(element), attributes: attributesOf(element) };
+        if (element.id) {
+          extra.id = element.id;
+        }
+        noteChange('attributes', element, extra);
+        return;
+      }
+      if (record.type === 'characterData' && onScreen(record.target)) {
+        noteChange('value', record.target, {
+          value: truncateValue(record.target.nodeValue || ''),
+        });
+      }
+    });
+  };
+
+  const OBSERVED = { childList: true, attributes: true, characterData: true, subtree: true };
+
+  /**
+   * Observe exactly the subtrees the app is showing, and nothing when it is
+   * showing none.
+   *
+   * A subtree observer under each expanded node rather than one per row: the
+   * rows that need watching are the expanded nodes and their children, and an
+   * observer per child would be hundreds of them for one open list. Records
+   * arriving from deeper than that are dropped by the on-screen test, which is
+   * cheaper than the observers would have been.
+   *
+   * The set arrives whole each time, so this is also how watching stops: an
+   * empty set disconnects everything, and a session that never opens the tree
+   * never constructs an observer at all.
+   */
+  const watch = ids => {
+    const next = new Set((Array.isArray(ids) ? ids : []).filter(id => nodeFor(id) !== null));
+
+    Array.from(observers.keys())
+      .filter(id => !next.has(id))
+      .forEach(id => {
+        observers.get(id).disconnect();
+        observers.delete(id);
+      });
+
+    next.forEach(id => {
+      if (observers.has(id)) {
+        return;
+      }
+      const node = nodeFor(id);
+      if (!node) {
+        return;
+      }
+      const view = viewOf(node) || globalThis;
+      const Observer = view.MutationObserver || globalThis.MutationObserver;
+      if (!Observer) {
+        return;
+      }
+      const observer = new Observer(onRecords);
+      observer.observe(node, OBSERVED);
+      observers.set(id, observer);
+    });
+
+    watched.clear();
+    next.forEach(id => watched.add(id));
+    return watched.size;
+  };
+
+  /**
+   * What has changed since this was last asked, and who is answering.
+   *
+   * The generation goes out with every drain because it is the only way the
+   * sidecar can notice a navigation nothing told it about: a fresh document has
+   * a fresh walker with a fresh name, and every handle the app is holding died
+   * with the old one.
+   */
+  const drain = () => {
+    if (overflowed) {
+      pendingChanges = new Map();
+      overflowed = false;
+      return { gen: GEN, invalidated: true, changes: [] };
+    }
+    const changes = Array.from(pendingChanges.values());
+    pendingChanges = new Map();
+    return { gen: GEN, invalidated: false, changes };
+  };
+
   Object.defineProperty(globalThis, KEY, {
-    value: { inspect, remeasure, cursorAt, describe, fail },
+    value: {
+      inspect,
+      remeasure,
+      cursorAt,
+      describe,
+      fail,
+      tree,
+      childrenOf,
+      describeSteps,
+      searchNodes,
+      watch,
+      drain,
+    },
     configurable: true,
     enumerable: false,
     writable: false,

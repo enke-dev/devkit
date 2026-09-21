@@ -1,5 +1,8 @@
 import type {
   ColorScheme,
+  DomChange,
+  DomMatch,
+  DomNode,
   Engine,
   EvaluatedValue,
   InputEvent,
@@ -207,6 +210,23 @@ export class Pane {
 
   /** Whether a measurement is already in the air, so a scroll cannot stack them. */
   #measuring = false;
+
+  /**
+   * Which document the handles this pane has handed out belong to.
+   *
+   * The walker names each document it is loaded into and repeats the name on
+   * every drain. A name that changed is a navigation nothing told us about, and
+   * every `nodeId` the app is holding for this engine died with the document
+   * that minted it — so the pane says so once rather than letting the app apply
+   * changes to a tree that no longer exists.
+   */
+  #domGen: string | null = null;
+
+  /** Whether anything is expanded, which is the only reason to poll for changes. */
+  #watchingDom = false;
+
+  /** Whether a drain is already in the air, so a slow page cannot stack them. */
+  #draining = false;
 
   /**
    * Whether the walker has already been put back once for this page.
@@ -814,6 +834,126 @@ export class Pane {
     // An element that has gone takes the reason to keep asking with it.
     this.#hasSelection = element !== null;
     return element;
+  }
+
+  // -------------------------------------------------------------------------
+  // The tree
+  // -------------------------------------------------------------------------
+
+  /**
+   * Ask the walker something about its tree.
+   *
+   * Everything here goes through one helper because everything here fails the
+   * same way: a stale handle, a page mid-navigation, a walker that is not there
+   * yet. The caller decides what an unanswerable question looks like — a null
+   * subtree, an empty list — and none of them is an error worth failing a
+   * command over, because the app has three panes and only one of them has to
+   * be able to answer for the view to be useful.
+   */
+  #askWalker<T>(call: string): Promise<T> {
+    const page = this.#page;
+    if (!page || page.isClosed()) {
+      throw new Error(`${this.engine} pane is not running`);
+    }
+    return this.#withWalker<T>(page, `globalThis[${JSON.stringify(WALKER_KEY)}].${call}`);
+  }
+
+  /** The document row, with a few levels already under it. */
+  async domRoot(depth?: number): Promise<DomNode[]> {
+    return this.#askWalker<DomNode[]>(`tree(${JSON.stringify(depth ?? null)})`);
+  }
+
+  /**
+   * One node's children, or null when the handle no longer means anything here.
+   *
+   * Null is not an error: a pane that navigated has every reason to refuse, and
+   * saying so is what lets the app throw its tree away rather than draw a
+   * subtree from the wrong document.
+   */
+  async domChildren(nodeId: string, depth?: number): Promise<DomNode[] | null> {
+    return this.#askWalker<DomNode[] | null>(
+      `childrenOf(${JSON.stringify(nodeId)}, ${JSON.stringify(depth ?? null)})`
+    );
+  }
+
+  /**
+   * Everything the panels say about the element an identity chain names here.
+   *
+   * Null when this engine has no such element, which is an answer: the app
+   * shows it as a column that found nothing, beside two that did.
+   */
+  async domDescribe(steps: string[]): Promise<InspectedElement | null> {
+    const element = await this.#askWalker<InspectedElement | null>(
+      `describeSteps(${JSON.stringify(steps)})`
+    );
+    // The same bookkeeping a point inspect does: the highlight follows whatever
+    // was selected last, however it was selected.
+    this.#hasSelection = element !== null;
+    return element;
+  }
+
+  async domSearch(query: string, limit?: number): Promise<DomMatch[]> {
+    return this.#askWalker<DomMatch[]>(
+      `searchNodes(${JSON.stringify(query)}, ${JSON.stringify(limit ?? null)})`
+    );
+  }
+
+  /**
+   * Tell the page which subtrees are on screen.
+   *
+   * An empty set is the off switch, and it is the state every pane stays in
+   * until somebody opens the Elements tab: no observers in the page, no polling
+   * out of it.
+   */
+  async domWatch(nodeIds: string[]): Promise<void> {
+    this.#watchingDom = nodeIds.length > 0;
+    await this.#askWalker<number>(`watch(${JSON.stringify(nodeIds)})`);
+  }
+
+  /** Whether this pane has anything worth polling for. */
+  get watchingDom(): boolean {
+    return this.#watchingDom;
+  }
+
+  /**
+   * What changed in the watched subtrees since this was last asked.
+   *
+   * Never throws, and never stacks: this runs on a timer, and a pane that
+   * cannot answer — mid-navigation, most often — must not turn a poll into a
+   * rejected command or leave three drains in flight behind a slow page.
+   *
+   * A generation that moved is reported as an invalidation rather than as
+   * changes. The changes would be honest and useless: they describe a document
+   * the app has no handles into.
+   */
+  async drainDom(): Promise<DomChange[] | 'invalidated' | null> {
+    const page = this.#page;
+    if (!this.#watchingDom || this.#draining || !page || page.isClosed()) {
+      return null;
+    }
+    this.#draining = true;
+    const drained = await this.#askWalker<{
+      gen: string;
+      invalidated: boolean;
+      changes: DomChange[];
+    }>('drain()').catch(() => null);
+    this.#draining = false;
+
+    if (!drained) {
+      return null;
+    }
+    if (this.#domGen !== null && this.#domGen !== drained.gen) {
+      // A new document, and with it a walker that never heard of the handles
+      // the app holds. Watching stops until the app has asked for a tree again.
+      this.#domGen = drained.gen;
+      this.#watchingDom = false;
+      return 'invalidated';
+    }
+    this.#domGen = drained.gen;
+    if (drained.invalidated) {
+      return 'invalidated';
+    }
+    return drained.changes.length > 0 ? drained.changes : null;
   }
 
   /**

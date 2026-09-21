@@ -3,13 +3,14 @@ import { createInterface } from 'node:readline';
 
 import type {
   ColorScheme,
+  DomNode,
   Engine,
   Event,
   InspectedElement,
   Request,
   Viewport,
 } from '@devkit/protocol';
-import { ENGINES } from '@devkit/protocol';
+import { DOM_WATCH_POLL_MS, ENGINES } from '@devkit/protocol';
 
 import { install, probe } from './browsers.js';
 import { closeDetached, detach } from './detached.js';
@@ -182,6 +183,89 @@ async function answerInspect(
   );
 }
 
+/**
+ * Ask each addressed pane for a slice of its tree and report what it said.
+ *
+ * Shaped like `answerInspect` and for the same reason: three panes answer one
+ * question independently, a pane that cannot answer says so in its own event,
+ * and none of that may sink the question for the others.
+ */
+async function answerDomNodes(
+  id: string,
+  engine: Engine | 'all',
+  ask: (pane: Pane) => Promise<DomNode[] | null>
+): Promise<void> {
+  await Promise.all(
+    targets(engine).map(async pane => {
+      try {
+        const nodes = await ask(pane);
+        emit(
+          nodes === null
+            ? {
+                type: 'dom-nodes',
+                id,
+                engine: pane.engine,
+                nodes: [],
+                // The handle is from a document this pane has left. Saying so is
+                // what lets the app drop its tree instead of drawing somebody
+                // else's subtree under a row that outlived its page.
+                error: 'that node belongs to a document this pane has left',
+              }
+            : { type: 'dom-nodes', id, engine: pane.engine, nodes }
+        );
+      } catch (error) {
+        emit({ type: 'dom-nodes', id, engine: pane.engine, nodes: [], error: describe(error) });
+      }
+    })
+  );
+}
+
+/**
+ * Ask every watching pane what changed, and say so.
+ *
+ * Polled rather than pushed: pushing means exposing a function on the page's
+ * global object for the life of the context, and the walker's whole bargain is
+ * that it defines one non-enumerable property and nothing else. The timer only
+ * exists while something is expanded, so a session that never opens the
+ * Elements tab never pays for it.
+ */
+let domPoll: NodeJS.Timeout | null = null;
+
+async function pollDom(): Promise<void> {
+  const watching = [...panes.values()].filter(pane => pane.watchingDom);
+  if (watching.length === 0) {
+    if (domPoll) {
+      clearInterval(domPoll);
+      domPoll = null;
+    }
+    return;
+  }
+
+  await Promise.all(
+    watching.map(async pane => {
+      const drained = await pane.drainDom().catch(() => null);
+      if (drained === null) {
+        return;
+      }
+      if (drained === 'invalidated') {
+        emit({ type: 'dom-invalidated', engine: pane.engine });
+        return;
+      }
+      emit({ type: 'dom-mutated', engine: pane.engine, changes: drained });
+    })
+  );
+}
+
+/** Start the poll if anything is watching and it is not already running. */
+function armDomPoll(): void {
+  if (domPoll || ![...panes.values()].some(pane => pane.watchingDom)) {
+    return;
+  }
+  // Unreferenced: watching a tree should not be the reason the process stays up.
+  domPoll = setInterval(() => void pollDom(), DOM_WATCH_POLL_MS);
+  domPoll.unref();
+}
+
 async function handle(request: Request): Promise<void> {
   switch (request.type) {
     case 'probe':
@@ -256,6 +340,36 @@ async function handle(request: Request): Promise<void> {
 
     case 'remeasure':
       await answerInspect(request.id, request.engine, pane => pane.remeasure());
+      return;
+
+    case 'dom-root':
+      await answerDomNodes(request.id, request.engine, pane => pane.domRoot(request.depth));
+      return;
+
+    case 'dom-children':
+      await answerDomNodes(request.id, request.engine, pane =>
+        pane.domChildren(request.nodeId, request.depth)
+      );
+      return;
+
+    case 'dom-describe':
+      // Answered by `inspected`, the same event a point inspect produces: the
+      // tree changed how an element is named, not what is said about it.
+      await answerInspect(request.id, request.engine, pane => pane.domDescribe(request.steps));
+      return;
+
+    case 'dom-search': {
+      const pane = panes.get(request.engine);
+      const matches = pane ? await pane.domSearch(request.query, request.limit) : [];
+      emit({ type: 'dom-found', id: request.id, engine: request.engine, matches });
+      return;
+    }
+
+    case 'dom-watch':
+      await Promise.all(
+        targets(request.engine).map(pane => pane.domWatch(request.nodeIds).catch(() => {}))
+      );
+      armDomPoll();
       return;
 
     case 'evaluate': {
