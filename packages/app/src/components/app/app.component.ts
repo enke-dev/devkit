@@ -1203,7 +1203,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    */
   private selectRow(nodeId: string, describe = true): void {
     const tree = this.tree;
-    if (!tree) {
+    if (!tree || (nodeId === tree.selectedId && !describe)) {
       return;
     }
     this.tree = { ...tree, selectedId: nodeId };
@@ -1425,19 +1425,25 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     const answers = ENGINES.map(engine => this.#pendingAnswers.get(engine)).filter(
       (answer): answer is InspectAnswer => answer !== undefined
     );
-    if (readoutSignature(answers) === readoutSignature(this.answers)) {
-      return;
+    if (readoutSignature(answers) !== readoutSignature(this.answers)) {
+      this.answers = answers;
+      this.push({ kind: 'answers', answers });
+      // Each pane is highlighted from its own answer: when two engines put the
+      // same element in different places, two rectangles in different places is
+      // the finding, and one shared overlay would have to be wrong about one.
+      this.panes.forEach(pane => {
+        const element = answers.find(answer => answer.engine === pane.engine)?.element ?? null;
+        pane.showHighlight(element ? element.box : null, element ? describeRef(element) : '');
+      });
     }
-    this.answers = answers;
-    this.push({ kind: 'answers', answers });
+
+    // Outside that guard, which is about not redrawing a panel that would come
+    // out identical. The tree is not the panel, and the one moment it most
+    // needs telling is the moment the guard fires: a click lands where the
+    // pointer already was, so what it commits is usually the very element the
+    // last sample described — identical readout, and the only chance the tree
+    // had to learn which row it was.
     this.revealPicked(answers);
-    // Each pane is highlighted from its own answer: when two engines put the
-    // same element in different places, two rectangles in different places is
-    // the finding, and one shared overlay would have to be wrong about one.
-    this.panes.forEach(pane => {
-      const element = answers.find(answer => answer.engine === pane.engine)?.element ?? null;
-      pane.showHighlight(element ? element.box : null, element ? describeRef(element) : '');
-    });
   }
 
   /**
@@ -1661,18 +1667,26 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * the others answered about their own documents, in handles this tree cannot
    * use.
    *
-   * Left alone while picking. Every pointer movement produces another readout,
-   * and a tree that scrolled to each of them would be unreadable — the reveal
-   * is worth doing for the element somebody stopped on, which is the one that
-   * arrives once the mode ends.
+   * Followed while picking too, not only once the mode ends. Pointing at a
+   * pane and watching the row light up is most of what the two panels are for
+   * together, and it is what the picker in every other inspector does. The tree
+   * only scrolls when the row is out of sight, so resting on one element costs
+   * nothing and moving across a page does not fight whoever is reading it.
    */
   private revealPicked(answers: InspectAnswer[]): void {
     const tree = this.tree;
-    if (!tree || this.picking) {
+    if (!tree) {
       return;
     }
     const element = answers.find(answer => answer.engine === tree.engine)?.element;
     if (!element?.nodeId || !element.ancestors) {
+      return;
+    }
+    // Already showing it. Worth checking because this runs on every sample the
+    // picker takes, and a pointer resting on one element produces the same
+    // answer eleven times a second — each of which would otherwise rebuild the
+    // tree to arrive at what it already said.
+    if (tree.selectedId === element.nodeId && this.#revealing === null) {
       return;
     }
     this.revealNode(element.nodeId, element.ancestors);
