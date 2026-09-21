@@ -79,3 +79,56 @@ export function storeDock(dock: InspectorDock): void {
     // A blocked store costs the preference, not the layout.
   }
 }
+
+/**
+ * How deep the drawer is, kept across restarts.
+ *
+ * Only the drawer. The panes always share their space evenly, because they
+ * share one viewport as well: every engine renders at the smallest pane's
+ * size, so making one pane bigger would not give that engine more page — it
+ * would shrink the viewport all three render at and leave the enlarged pane
+ * holding a smaller picture. The even split is the only one where the space a
+ * pane has and the page it shows are the same thing.
+ */
+
+const INSPECTOR_SIZE_KEY = 'devkit.inspectorSize';
+
+/**
+ * How little of the window the panes may be squeezed into.
+ *
+ * The bound on how far the drawer can be dragged, not a size anything is set
+ * to: the panes are the point of the app, and a drawer that can cover them
+ * entirely is a drawer that can lose them.
+ */
+export const MIN_PANE = 140;
+
+/** Smallest the drawer may be dragged to, in CSS pixels. */
+export const MIN_INSPECTOR = 120;
+
+/**
+ * What a placement opens at.
+ *
+ * A side drawer is read in columns of text and a bottom one in rows of them,
+ * so they do not want the same measurement — which is also why moving the
+ * drawer resets its size rather than carrying a height over into a width.
+ */
+export function defaultInspectorSize(dock: InspectorDock): number {
+  return dock === 'bottom' ? 280 : 380;
+}
+
+export function storedInspectorSize(dock: InspectorDock): number {
+  try {
+    const stored = Number(localStorage.getItem(INSPECTOR_SIZE_KEY));
+    return Number.isFinite(stored) && stored >= MIN_INSPECTOR ? stored : defaultInspectorSize(dock);
+  } catch {
+    return defaultInspectorSize(dock);
+  }
+}
+
+export function storeInspectorSize(size: number): void {
+  try {
+    localStorage.setItem(INSPECTOR_SIZE_KEY, String(Math.round(size)));
+  } catch {
+    // A blocked store costs the preference, not the layout.
+  }
+}

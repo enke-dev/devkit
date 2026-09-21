@@ -463,6 +463,18 @@ cap for a pane that never will, and a sample whose signature matches what is alr
 dropped rather than rendered. That second guard covers most samples: the pointer moves a few pixels
 within one element far more often than it crosses into another.
 
+**The drawer is the only thing that resizes.** Its edge is a real element rather than a grid gap,
+because a gap cannot be taken hold of, and it is a few pixels of hit area with a one-pixel line
+painted down the middle — the right amount of ink is the wrong amount of target. The size is kept
+across restarts and restored when the drawer is reopened, and moving the drawer resets it: a height
+dragged along the bottom is not a width down the side.
+
+The panes deliberately do not resize. They share one viewport, taken as the *smallest* pane's size
+so that every engine renders the same page — so dragging one pane wider would not give that engine
+more page to show, it would shrink the viewport all three render at and leave the enlarged pane
+holding a smaller picture. An even split is the only division where the space a pane has and the
+page it shows are the same thing.
+
 **The drawer has four places, offered all at once.** A window of its own, left, bottom or right,
 listed in a flyout with the current one marked — the row the developer tools everyone already knows
 put them in. It began as a button that cycled, which asked people to guess what came next and hid

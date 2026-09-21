@@ -34,7 +34,18 @@ import { attachInput } from '../../utils/input.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from '../../utils/inspect.utils.js';
 import { appendConsole, describeRef, readoutSignature } from '../../utils/inspect.utils.js';
 import type { InspectorDock, SplitDirection } from '../../utils/layout.utils.js';
-import { storedDock, storeDock, storedSplit, storeSplit } from '../../utils/layout.utils.js';
+import {
+  defaultInspectorSize,
+  MIN_INSPECTOR,
+  MIN_PANE,
+  storedDock,
+  storedInspectorSize,
+  storeDock,
+  storedSplit,
+  storeInspectorSize,
+  storeSplit,
+} from '../../utils/layout.utils.js';
+import { clamp, startDrag } from '../../utils/resize.utils.js';
 import * as session from '../../utils/session.utils.js';
 import { isAppShortcut, match } from '../../utils/shortcuts.utils.js';
 import type { AvailableUpdate } from '../../utils/update.utils.js';
@@ -152,6 +163,9 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   @state() private accessor installingAll = false;
   /** How the panes are arranged; seeded from the last session, not defaulted. */
   @state() private accessor split: SplitDirection = storedSplit();
+
+  /** How deep the drawer is, in CSS pixels along whichever edge it is on. */
+  @state() private accessor inspectorSize: number = storedInspectorSize(storedDock());
 
   @state() private accessor canGoBack = session.canGoBack();
   @state() private accessor canGoForward = session.canGoForward();
@@ -655,6 +669,11 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     const wasDetached = this.dock === 'detached';
     this.dock = dock;
     storeDock(dock);
+    // Moving the drawer is a fresh start for its size, and only for its size:
+    // a height dragged along the bottom is not a width down the side. The
+    // panes keep whatever division they were given.
+    this.inspectorSize = defaultInspectorSize(dock);
+    storeInspectorSize(this.inspectorSize);
     if (wasDetached) {
       void closeInspectorWindow();
     }
@@ -731,6 +750,45 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.messages = [];
     this.evaluations = [];
     this.push({ kind: 'console-cleared' });
+  }
+
+  // -------------------------------------------------------------------------
+  // Dividers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Drag the drawer's edge.
+   *
+   * Which direction makes it bigger depends on which edge it is against, which
+   * is the only thing the three docked placements do differently here.
+   */
+  private startInspectorDrag(event: PointerEvent): void {
+    const start = this.inspectorSize;
+    const dock = this.dock;
+    const host = this.getBoundingClientRect();
+    const most = (dock === 'bottom' ? host.height : host.width) - MIN_PANE;
+
+    startDrag(event, {
+      move: (deltaX, deltaY) => {
+        const grown = dock === 'bottom' ? -deltaY : dock === 'right' ? -deltaX : deltaX;
+        this.inspectorSize = clamp(start + grown, MIN_INSPECTOR, most);
+      },
+      end: () => {
+        storeInspectorSize(this.inspectorSize);
+        this.settleNow();
+      },
+    });
+  }
+
+  /**
+   * Agree a viewport straight away rather than waiting out the resize debounce.
+   *
+   * The debounce is for a burst of sizes on the way to one that is meant; a
+   * released divider is the one that was meant.
+   */
+  private settleNow(): void {
+    window.clearTimeout(this.#resizeTimer);
+    this.#settleViewport();
   }
 
   private setPicking(picking: boolean): void {
@@ -1289,6 +1347,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
 
   override updated(): void {
     this.attachPanes();
+    // The grid keeps its placement in the stylesheet and takes only the one
+    // number from here, which is the least that has to be inline for an edge
+    // somebody can drag.
+    this.style.setProperty('--inspector-size', `${Math.round(this.inspectorSize)}px`);
   }
 
   /**
@@ -1356,6 +1418,12 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       ${when(
         this.inspecting && this.dock !== 'detached',
         () => html`
+          <div
+            class="divider inspector-divider"
+            role="separator"
+            aria-orientation=${this.dock === 'bottom' ? 'horizontal' : 'vertical'}
+            @pointerdown=${(event: PointerEvent) => this.startInspectorDrag(event)}
+          ></div>
           <devkit-inspector
             .answers=${this.answers}
             .messages=${this.messages}
