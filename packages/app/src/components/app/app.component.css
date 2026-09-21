@@ -1,5 +1,14 @@
 :host {
-  --divider: 5px;
+  --divider: 1px;
+  /* How far either side of the line you may take hold of it.
+   *
+   * The same either way: one that reaches further in one direction than the
+   * other is one you have to aim at. Small, because a resize edge is an easy
+   * target for its size — you can only miss it on one axis, and you are
+   * already moving towards it. Measured against the tools this sits beside,
+   * whose whole draggable strip is six pixels in Chrome's developer tools and
+   * four in VS Code, seven is already generous. */
+  --divider-grip: 3px;
   --inspector-size: 280px;
 
   display: grid;
@@ -76,22 +85,29 @@ devkit-app-navbar {
 
 /* Dividers --------------------------------------------------------------- */
 
-/* Wider than the line it draws. A one-pixel border is the right amount of ink
-   and quite the wrong amount of target, so the element is a few pixels of hit
-   area with the line painted down the middle of it.
-
-   It takes the colour of the surfaces it sits between rather than the page
-   behind them. Left as the page colour it read as a band with a rule inside
-   it, which is two edges where the layout has one. */
+/* One pixel of ink, like every other edge in the app.
+ *
+ * What you have to hit to drag it is not one pixel: the pseudo-element reaches
+ * `--divider-grip` either side, so the target is seven pixels across while
+ * the line stays at one. Hovering that reach counts as hovering the divider — a
+ * pseudo-element is part of its element for both hit-testing and `:hover` — so
+ * the line lights up from anywhere in the grip rather than only from directly
+ * on top of it.
+ *
+ * It covers the outermost pixels of whatever it sits between, so the page is
+ * not clickable quite to the edge of a pane. Cheap at this size, and cheaper
+ * still because closing the drawer gives those pixels straight back.
+ */
 .divider {
   position: relative;
-  background: var(--bg-raised);
+  /* Above the pane and the drawer, or the grip would be the one covered. */
+  z-index: 4;
+  background: var(--border);
   touch-action: none;
 }
 
 .divider::after {
   position: absolute;
-  background: var(--border);
   content: '';
 }
 
@@ -100,8 +116,7 @@ devkit-app-navbar {
 }
 
 .divider[aria-orientation='vertical']::after {
-  inset: 0 50% 0 50%;
-  width: 1px;
+  inset: 0 calc(var(--divider-grip) * -1);
 }
 
 .divider[aria-orientation='horizontal'] {
@@ -109,12 +124,11 @@ devkit-app-navbar {
 }
 
 .divider[aria-orientation='horizontal']::after {
-  inset: 50% 0 50% 0;
-  height: 1px;
+  inset: calc(var(--divider-grip) * -1) 0;
 }
 
-.divider:hover::after,
-.divider:active::after {
+.divider:hover,
+.divider:active {
   background: var(--accent);
 }
 
