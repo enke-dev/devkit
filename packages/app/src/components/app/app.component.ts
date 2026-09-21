@@ -64,6 +64,7 @@ import * as session from '../../utils/session.utils.js';
 import { isAppShortcut, match } from '../../utils/shortcuts.utils.js';
 import type { AvailableUpdate } from '../../utils/update.utils.js';
 import { availableUpdate } from '../../utils/update.utils.js';
+import { nameWindow } from '../../utils/window-title.utils.js';
 import type { AppNavbarComponent } from '../app-navbar/app-navbar.component.js';
 import type { DividerMove } from '../divider/divider.component.js';
 import type { PaneComponent } from '../pane/pane.component.js';
@@ -1883,8 +1884,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         if (real && !event.loading) {
           history.record(event.url, event.title);
         }
-        if (event.engine === 'chromium' && !event.loading && event.title) {
-          document.title = `${event.title} — DevKit`;
+        if (event.engine === 'chromium' && !event.loading && real) {
+          document.title = event.title ? `${event.title} — DevKit` : 'DevKit';
+          // The native window too, which is what a tab is named after.
+          nameWindow(event.title, event.url);
         }
         return;
       }
