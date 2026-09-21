@@ -66,6 +66,22 @@ header {
   content: '';
 }
 
+/* The tree above, what the engines say about its selection below. The tree
+   gets a share rather than a fixed height because the drawer is resizable, and
+   a fixed one would leave it a sliver in a short dock and acres in a tall one.
+   Both halves scroll on their own: they are different lists and reading one
+   should not move the other. */
+.elements {
+  display: grid;
+  grid-template-rows: minmax(120px, 40%) 1fr;
+  min-height: 0;
+}
+
+.elements > devkit-dom-tree {
+  min-height: 0;
+  border-bottom: 1px solid var(--border);
+}
+
 .body {
   min-height: 0;
   overflow: auto;

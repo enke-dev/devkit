@@ -1,3 +1,4 @@
+import '../dom-tree/dom-tree.component.js';
 import '../icon-button/icon-button.component.js';
 import '../popover/popover.component.js';
 import '@phosphor-icons/webcomponents/PhBrowsers';
@@ -18,6 +19,7 @@ import { repeat } from 'lit/directives/repeat.js';
 
 import { ariaBoolean } from '../../utils/aria.utils.js';
 import { DevkitElement } from '../../utils/base.utils.js';
+import type { DomTree } from '../../utils/dom.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from '../../utils/inspect.utils.js';
 import {
   agreed,
@@ -89,6 +91,27 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
 
   @property({ attribute: false })
   accessor evaluations: Evaluation[] = [];
+
+  /**
+   * The tree being shown, which belongs to exactly one engine.
+   *
+   * Null until the Elements tab has asked for one. The drawer opens on that tab
+   * and most sessions never leave it, so this is a first-frame state rather
+   * than a common one — but a drawer that cannot draw itself before the round
+   * trip lands is a drawer that flashes empty every time it opens.
+   */
+  @property({ attribute: false })
+  accessor tree: DomTree | null = null;
+
+  /** The engines with a pane running, so the tree's picker offers real choices. */
+  @property({ attribute: false })
+  accessor treeEngines: Engine[] = [];
+
+  @property({ type: Boolean })
+  accessor searching = false;
+
+  @property({ attribute: false })
+  accessor matchCount: number | null = null;
 
   /** Whether the inspected element follows the pointer, or is being held still. */
   @property({ type: Boolean, reflect: true })
@@ -239,7 +262,36 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
   // Elements
   // -------------------------------------------------------------------------
 
+  /**
+   * The tree, and what the engines say about whichever row it has selected.
+   *
+   * Two panels rather than one because they answer different questions and one
+   * of them is per engine while the other is not: the tree is one engine's DOM,
+   * and the table underneath is all three engines' account of the element the
+   * tree is pointing at. Stacking them is what lets a row be clicked and a
+   * disagreement be read without either panel changing what it means.
+   */
   private renderElements() {
+    return html`
+      <div class="elements">
+        ${
+          this.tree
+            ? html`
+                <devkit-dom-tree
+                  .tree=${this.tree}
+                  .engines=${this.treeEngines}
+                  ?searching=${this.searching}
+                  .matchCount=${this.matchCount}
+                ></devkit-dom-tree>
+              `
+            : html`<p class="hint">Loading the tree…</p>`
+        }
+        ${this.renderDetails()}
+      </div>
+    `;
+  }
+
+  private renderDetails() {
     const columns = this.columns;
     if (columns.length === 0) {
       return html`
@@ -247,7 +299,7 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
           ${
             this.picking
               ? 'Point at a pane to inspect what is under the pointer.'
-              : 'Pick an element to compare it across the engines.'
+              : 'Select a row, or pick an element, to compare it across the engines.'
           }
         </p>
       `;

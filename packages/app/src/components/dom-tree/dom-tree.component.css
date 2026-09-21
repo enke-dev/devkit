@@ -1,0 +1,178 @@
+:host {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-width: 0;
+  min-height: 0;
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 11px;
+}
+
+.controls {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  font-family: inherit;
+}
+
+.engines {
+  display: flex;
+  gap: 2px;
+}
+
+.engines button {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.engines button[aria-checked='true'] {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text);
+}
+
+.search {
+  display: flex;
+  flex: 1;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+  color: var(--text-dim);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.search input:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent);
+  outline-offset: -1px;
+}
+
+.matches {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.scroller {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+}
+
+.scroller:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 50%, transparent);
+  outline-offset: -2px;
+}
+
+.hint {
+  margin: 0;
+  padding: 10px;
+  color: var(--text-dim);
+}
+
+/* The spacer carries the height of the whole tree so the scrollbar is honest;
+   the window inside it holds only the rows in view and is moved to where they
+   would have been. */
+.spacer {
+  position: relative;
+}
+
+.window {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+}
+
+.row {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  /* Stated rather than grown into: the list is windowed, and a row that sized
+     itself would put every other row somewhere the scroller did not predict. */
+  height: 20px;
+  padding-inline-end: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.row:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+.row[data-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.twisty {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.tag {
+  color: var(--accent);
+}
+
+.hash {
+  color: var(--text);
+}
+
+.class {
+  color: var(--text-dim);
+}
+
+.attribute {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  opacity: 0.8;
+}
+
+.text {
+  color: var(--text);
+  opacity: 0.85;
+}
+
+.comment {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* The two rows that are not nodes: a boundary that was crossed, and generated
+   content that has no node at all. Both are marked as not-quite-DOM rather than
+   dressed up as elements, because a row that looks like an element and cannot
+   be selected is the more confusing of the two mistakes. */
+.boundary,
+.pseudo {
+  color: var(--text-dim);
+  font-style: italic;
+  opacity: 0.9;
+}
+
+.note {
+  color: var(--warn, #c98a00);
+}

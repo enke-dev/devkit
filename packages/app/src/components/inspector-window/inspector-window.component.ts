@@ -1,11 +1,14 @@
 import '../inspector/inspector.component.js';
 
+import type { Engine } from '@devkit/protocol';
 import { html } from 'lit';
 import { customElement, state } from 'lit/decorators.js';
 
 import { DevkitElement } from '../../utils/base.utils.js';
 import type { InspectorState } from '../../utils/detached.utils.js';
 import { onState, sendIntent } from '../../utils/detached.utils.js';
+import type { DomTree } from '../../utils/dom.utils.js';
+import { fromWire } from '../../utils/dom.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from '../../utils/inspect.utils.js';
 import { CONSOLE_LIMIT } from '../../utils/inspect.utils.js';
 import type { InspectorDock } from '../../utils/layout.utils.js';
@@ -32,6 +35,19 @@ export class InspectorWindowComponent extends DevkitElement.withStyles(styles) {
   @state() private accessor picking = false;
   @state() private accessor tab: 'elements' | 'console' = 'elements';
 
+  /**
+   * The tree, rebuilt from the arrays it crossed the window boundary as.
+   *
+   * The channel carries JSON, so the maps and sets the tree is made of arrive
+   * as arrays and are put back together here — once, on arrival, rather than
+   * on every render.
+   */
+  @state() private accessor tree: DomTree | null = null;
+
+  @state() private accessor treeEngines: Engine[] = [];
+  @state() private accessor searching = false;
+  @state() private accessor matchCount: number | null = null;
+
   override connectedCallback(): void {
     super.connectedCallback();
     void onState(state => this.apply(state)).then(() =>
@@ -49,9 +65,13 @@ export class InspectorWindowComponent extends DevkitElement.withStyles(styles) {
         this.evaluations = state.evaluations;
         this.picking = state.picking;
         this.tab = state.tab;
+        this.applyTree(state);
         return;
       case 'answers':
         this.answers = state.answers;
+        return;
+      case 'tree':
+        this.applyTree(state);
         return;
       case 'console':
         // Appended rather than re-sent whole: the app window keeps them in
@@ -75,6 +95,13 @@ export class InspectorWindowComponent extends DevkitElement.withStyles(styles) {
     }
   }
 
+  private applyTree(state: Extract<InspectorState, { kind: 'snapshot' | 'tree' }>): void {
+    this.tree = state.tree === null ? null : fromWire(state.tree);
+    this.treeEngines = state.treeEngines;
+    this.searching = state.searching;
+    this.matchCount = state.matchCount;
+  }
+
   override render() {
     return html`
       <devkit-inspector
@@ -84,6 +111,18 @@ export class InspectorWindowComponent extends DevkitElement.withStyles(styles) {
         .picking=${this.picking}
         .tab=${this.tab}
         .dock=${'detached' as const}
+        .tree=${this.tree}
+        .treeEngines=${this.treeEngines}
+        ?searching=${this.searching}
+        .matchCount=${this.matchCount}
+        @devkit-dom-engine=${(event: CustomEvent<Engine>) =>
+          sendIntent({ kind: 'tree-engine', engine: event.detail })}
+        @devkit-dom-toggle=${(event: CustomEvent<{ nodeId: string; open: boolean }>) =>
+          sendIntent({ kind: 'tree-toggle', ...event.detail })}
+        @devkit-dom-select=${(event: CustomEvent<string>) =>
+          sendIntent({ kind: 'tree-select', nodeId: event.detail })}
+        @devkit-dom-search=${(event: CustomEvent<string>) =>
+          sendIntent({ kind: 'tree-search', query: event.detail })}
         @devkit-inspector-tab=${(event: CustomEvent<'elements' | 'console'>) =>
           sendIntent({ kind: 'tab', tab: event.detail })}
         @devkit-inspector-dock=${(event: CustomEvent<InspectorDock>) =>

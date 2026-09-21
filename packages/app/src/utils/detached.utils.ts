@@ -1,6 +1,8 @@
+import type { Engine } from '@devkit/protocol';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 
+import type { DomTreeWire } from './dom.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from './inspect.utils.js';
 import type { InspectorDock } from './layout.utils.js';
 
@@ -47,8 +49,27 @@ export type InspectorState =
       evaluations: Evaluation[];
       picking: boolean;
       tab: 'elements' | 'console';
+      tree: DomTreeWire | null;
+      treeEngines: Engine[];
+      searching: boolean;
+      matchCount: number | null;
     }
   | { kind: 'answers'; answers: InspectAnswer[] }
+  /**
+   * The tree, whole.
+   *
+   * Sent on every change rather than diffed. It changes when somebody opens a
+   * twisty or the page moves something they are looking at, which is orders of
+   * magnitude rarer than a console line — the one thing here that earned an
+   * incremental channel.
+   */
+  | {
+      kind: 'tree';
+      tree: DomTreeWire | null;
+      treeEngines: Engine[];
+      searching: boolean;
+      matchCount: number | null;
+    }
   | { kind: 'console'; entry: ConsoleEntry }
   | { kind: 'console-cleared' }
   | { kind: 'evaluations'; evaluations: Evaluation[] }
@@ -70,7 +91,11 @@ export type InspectorIntent =
   | { kind: 'dock'; dock: InspectorDock }
   | { kind: 'close' }
   | { kind: 'evaluate'; expression: string }
-  | { kind: 'clear-console' };
+  | { kind: 'clear-console' }
+  | { kind: 'tree-engine'; engine: Engine }
+  | { kind: 'tree-toggle'; nodeId: string; open: boolean }
+  | { kind: 'tree-select'; nodeId: string }
+  | { kind: 'tree-search'; query: string };
 
 export function sendState(state: InspectorState): void {
   void emit(INSPECTOR_STATE_EVENT, state).catch(() => {

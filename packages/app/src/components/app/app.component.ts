@@ -15,6 +15,7 @@ import { CHECK_FOR_UPDATES_EVENT, ENGINE_LABELS, ENGINES } from '@devkit/protoco
 import { listenWindow } from '@enke.dev/lit-utils/lib/utils/event.utils.js';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import type { PropertyValues } from 'lit';
 import { html, nothing } from 'lit';
 import { customElement, property, queryAll, state } from 'lit/decorators.js';
 import { when } from 'lit/directives/when.js';
@@ -29,6 +30,18 @@ import {
   openInspectorWindow,
   sendState,
 } from '../../utils/detached.utils.js';
+import type { DomTree } from '../../utils/dom.utils.js';
+import {
+  absorb,
+  applyChanges,
+  collapse,
+  emptyTree,
+  expand,
+  reveal,
+  stepsTo,
+  toWire,
+  watchIds,
+} from '../../utils/dom.utils.js';
 import * as history from '../../utils/history.utils.js';
 import { attachInput } from '../../utils/input.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from '../../utils/inspect.utils.js';
@@ -143,6 +156,21 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   @state() private accessor picking = false;
 
   @state() private accessor answers: InspectAnswer[] = [];
+
+  /**
+   * The tree on screen, which belongs to exactly one engine.
+   *
+   * One rather than three. Three trees side by side are unreadable past the
+   * second level, and the comparison the app is for already happens underneath
+   * — the table answers for all three engines about whichever element this tree
+   * has selected. Merging them into one annotated tree is the version worth
+   * building next, and it needs this to exist first.
+   */
+  @state() private accessor tree: DomTree | null = null;
+
+  @state() private accessor searching = false;
+
+  @state() private accessor matchCount: number | null = null;
   @state() private accessor messages: ConsoleEntry[] = [];
   @state() private accessor evaluations: Evaluation[] = [];
 
@@ -224,6 +252,32 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * allowed to overwrite it.
    */
   #inspectId: string | null = null;
+
+  /**
+   * What each outstanding tree question was asking for, so its answer can be
+   * put somewhere.
+   *
+   * The parent whose children were asked for, or null for the root. Answers
+   * arrive per engine and name only the command, so without this a subtree
+   * would have nowhere to hang.
+   */
+  #domRequests = new Map<string, string | null>();
+
+  /**
+   * A node to open the way down to, and select when it gets there.
+   *
+   * Revealing is not one round trip: each level of the chain may need its
+   * children fetched, and the level below it cannot be opened until they land.
+   * So it is a standing intention rather than a call, retried every time a
+   * slice of tree arrives.
+   */
+  #revealing: { nodeId: string; ancestors: string[] } | null = null;
+
+  /** The watch set as last sent, so an unchanged one is not sent again. */
+  #watching = '';
+
+  /** The newest search, so the answers to the prefixes typed on the way are ignored. */
+  #searchId: string | null = null;
   #inspectAt = 0;
   #inspectTrailing: number | undefined;
 
@@ -702,8 +756,13 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     // Closing the drawer must stop the sampling behind it, or three engines go
     // on being asked about every pointer movement for a panel nobody can see.
     this.setPicking(open && this.picking);
-    if (!open) {
+    if (open) {
+      this.ensureTree();
+    } else {
       this.clearInspection();
+      // The same argument as the picker: a closed drawer must not leave a page
+      // observing its own DOM for a panel nobody can see.
+      this.stopWatching();
     }
     if (this.dock !== 'detached') {
       return;
@@ -771,6 +830,28 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       evaluations: this.evaluations,
       picking: this.picking,
       tab: this.inspectorTab,
+      tree: this.tree === null ? null : toWire(this.tree),
+      treeEngines: [...this.#running],
+      searching: this.searching,
+      matchCount: this.matchCount,
+    });
+  }
+
+  /**
+   * Send the detached window the tree, when there is one to send.
+   *
+   * Driven from `updated` rather than from the half-dozen places the tree
+   * changes, because every one of them would otherwise have to remember — and
+   * the one that forgot would leave a detached window showing a tree that no
+   * longer matches what the panes are doing.
+   */
+  private pushTree(): void {
+    this.push({
+      kind: 'tree',
+      tree: this.tree === null ? null : toWire(this.tree),
+      treeEngines: [...this.#running],
+      searching: this.searching,
+      matchCount: this.matchCount,
     });
   }
 
@@ -800,12 +881,31 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       case 'close':
         this.setInspecting(false);
         return;
+      case 'tree-engine':
+        this.startTree(intent.engine);
+        return;
+      case 'tree-toggle':
+        this.toggleRow(intent.nodeId, intent.open);
+        return;
+      case 'tree-select':
+        this.selectRow(intent.nodeId);
+        return;
+      case 'tree-search':
+        this.searchTree(intent.query);
+        return;
     }
   }
 
   private setTab(tab: 'elements' | 'console'): void {
     this.inspectorTab = tab;
     this.push({ kind: 'tab', tab });
+    if (tab === 'elements') {
+      this.ensureTree();
+    } else {
+      // The tree is kept — coming back to it should not mean loading it again —
+      // but nothing is watching it while it is not on screen.
+      this.stopWatching();
+    }
   }
 
   private clearConsole(): void {
@@ -871,6 +971,10 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.#inspectId = null;
     this.answers = [];
     this.panes.forEach(pane => pane.showHighlight(null));
+    // Every handle in the tree names a node in the document being left. The
+    // walkers are per document and have already forgotten them.
+    this.clearTree();
+    this.ensureTree();
   }
 
   private sampleInspect(x: number, y: number): void {
@@ -892,7 +996,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   }
 
   /** Put the question to every pane and start waiting for a whole readout. */
-  private ask(command: Extract<Command, { type: 'inspect' | 'remeasure' }>): void {
+  private ask(command: Extract<Command, { type: 'inspect' | 'remeasure' | 'dom-describe' }>): void {
     const { id, done } = sendTracked(command);
     this.#inspectId = id;
     this.#pendingAnswers = new Map();
@@ -902,6 +1006,265 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     window.clearTimeout(this.#publishTimer);
     this.#publishTimer = window.setTimeout(() => this.publishAnswers(), ANSWER_GRACE_MS);
     void done.catch((error: unknown) => this.reportError(error));
+  }
+
+  // -------------------------------------------------------------------------
+  // The tree
+  // -------------------------------------------------------------------------
+
+  /**
+   * Make sure there is a tree to show, and that it belongs to a live engine.
+   *
+   * Called whenever the reasons to have one change — the drawer opening, the
+   * tab changing, a pane coming up. Cheap to call and does nothing in the
+   * common case, which is that the tree on screen is already the right one.
+   */
+  private ensureTree(): void {
+    if (!this.inspecting || this.inspectorTab !== 'elements') {
+      return;
+    }
+    const engines = [...this.#running];
+    if (engines.length === 0) {
+      return;
+    }
+    const engine = this.tree && engines.includes(this.tree.engine) ? this.tree.engine : engines[0];
+    if (engine === undefined) {
+      return;
+    }
+    if (!this.tree || this.tree.engine !== engine) {
+      this.startTree(engine);
+    }
+  }
+
+  /** Throw away whatever tree there was and ask this engine for a fresh one. */
+  private startTree(engine: Engine): void {
+    this.tree = emptyTree(engine);
+    this.matchCount = null;
+    // Both belong to the tree being replaced. A reveal that outlived it would
+    // ask for its ancestors by handle, be refused, start the tree again, and go
+    // round — and the outstanding questions would graft their answers onto
+    // whatever had taken their parents' place.
+    this.#revealing = null;
+    this.#domRequests.clear();
+    // Nothing is expanded in a tree that has just been made, and the pane must
+    // be told before it goes on reporting changes to a document nobody is
+    // holding handles into.
+    this.pushWatch();
+    const { id, done } = sendTracked({ type: 'dom-root', engine, depth: 3 });
+    this.#domRequests.set(id, null);
+    void done.catch((error: unknown) => this.reportError(error));
+  }
+
+  /** Drop the tree, for a navigation that made every handle in it meaningless. */
+  private clearTree(): void {
+    this.tree = null;
+    this.matchCount = null;
+    this.#domRequests.clear();
+    this.#revealing = null;
+    this.#watching = '';
+  }
+
+  private fetchChildren(nodeId: string): void {
+    const tree = this.tree;
+    if (!tree) {
+      return;
+    }
+    const { id, done } = sendTracked({ type: 'dom-children', engine: tree.engine, nodeId });
+    this.#domRequests.set(id, nodeId);
+    void done.catch((error: unknown) => this.reportError(error));
+  }
+
+  /**
+   * Take a slice of tree.
+   *
+   * Only the engine whose tree is on screen is listened to. The command goes to
+   * one pane, but an engine that was switched away from between the question
+   * and the answer would otherwise graft its subtree onto somebody else's tree.
+   */
+  private onDomNodes(event: Extract<Event, { type: 'dom-nodes' }>): void {
+    const parentId = this.#domRequests.get(event.id);
+    if (parentId === undefined) {
+      return;
+    }
+    this.#domRequests.delete(event.id);
+
+    const tree = this.tree;
+    if (!tree || tree.engine !== event.engine) {
+      return;
+    }
+    if (event.error !== undefined) {
+      // The pane has left the document these handles belonged to. Nothing can
+      // be grafted onto a tree that no longer describes anything.
+      this.startTree(event.engine);
+      return;
+    }
+
+    this.tree = absorb(tree, parentId, event.nodes);
+    this.pushWatch();
+    this.continueReveal();
+  }
+
+  /**
+   * Open or close a row.
+   *
+   * The children are asked for only the first time: a row that has been opened
+   * before still has them, and a page that changed underneath said so through
+   * its watch rather than by making every twisty a round trip.
+   */
+  private toggleRow(nodeId: string, open: boolean): void {
+    const tree = this.tree;
+    if (!tree) {
+      return;
+    }
+    if (!open) {
+      this.tree = collapse(tree, nodeId);
+      this.pushWatch();
+      return;
+    }
+    const opened = expand(tree, nodeId);
+    this.tree = opened.tree;
+    if (opened.fetch) {
+      this.fetchChildren(nodeId);
+    }
+    this.pushWatch();
+  }
+
+  /**
+   * Select a row, and ask every engine about the element it stands for.
+   *
+   * By identity rather than by handle: the handle is this engine's, and the
+   * question is what all three make of the same element. A pane that has no
+   * such element answers with nothing, which is the column that says so.
+   */
+  private selectRow(nodeId: string, describe = true): void {
+    const tree = this.tree;
+    if (!tree) {
+      return;
+    }
+    this.tree = { ...tree, selectedId: nodeId };
+    if (describe) {
+      this.ask({ type: 'dom-describe', engine: 'all', steps: stepsTo(tree, nodeId) });
+    }
+  }
+
+  private searchTree(query: string): void {
+    const tree = this.tree;
+    if (!tree) {
+      return;
+    }
+    if (query.trim().length === 0) {
+      this.matchCount = null;
+      return;
+    }
+    this.searching = true;
+    const { id, done } = sendTracked({ type: 'dom-search', engine: tree.engine, query });
+    // Search answers name the command, and only the newest one is wanted: a
+    // typed query produces several and the earlier ones describe prefixes.
+    this.#searchId = id;
+    void done.catch((error: unknown) => this.reportError(error));
+  }
+
+  private onDomFound(event: Extract<Event, { type: 'dom-found' }>): void {
+    if (event.id !== this.#searchId) {
+      return;
+    }
+    this.searching = false;
+    this.matchCount = event.matches.length;
+    const first = event.matches[0];
+    if (first) {
+      this.revealNode(first.nodeId, first.ancestors);
+    }
+  }
+
+  /**
+   * Open the way down to a node and select it when it arrives.
+   *
+   * Recorded rather than done, because the chain cannot be walked in one go:
+   * each level's children have to land before the next can be opened.
+   */
+  private revealNode(nodeId: string, ancestors: string[]): void {
+    this.#revealing = { nodeId, ancestors };
+    this.continueReveal();
+  }
+
+  private continueReveal(): void {
+    const wanted = this.#revealing;
+    const tree = this.tree;
+    if (!wanted || !tree) {
+      return;
+    }
+    const opened = reveal(tree, wanted.ancestors);
+    this.tree = opened.tree;
+    opened.fetch.forEach(id => this.fetchChildren(id));
+    if (opened.fetch.length > 0) {
+      return;
+    }
+    if (!this.tree.nodes.has(wanted.nodeId)) {
+      // Everything on the way is open and the node is still not here: this
+      // engine does not have it. Nothing more to wait for.
+      this.#revealing = null;
+      return;
+    }
+    this.#revealing = null;
+    this.pushWatch();
+    // Selected without describing: whoever asked for the reveal — the picker,
+    // a search — already has the answers, and asking again would replace a
+    // whole readout with an identical one.
+    this.selectRow(wanted.nodeId, false);
+  }
+
+  /**
+   * Tell the pane which subtrees are on screen.
+   *
+   * Sent only when it changed, which is what keeps walking the tree with the
+   * arrow keys from being a command per keystroke. An empty set is the off
+   * switch and is sent as readily as any other: it is what stops the page
+   * observing itself.
+   */
+  private pushWatch(): void {
+    const tree = this.tree;
+    if (!tree) {
+      return;
+    }
+    const ids = watchIds(tree);
+    const signature = `${tree.engine}:${ids.join(',')}`;
+    if (signature === this.#watching) {
+      return;
+    }
+    this.#watching = signature;
+    void send({ type: 'dom-watch', engine: tree.engine, nodeIds: ids }).catch((error: unknown) =>
+      this.reportError(error)
+    );
+  }
+
+  /**
+   * Take the page's observers away, without forgetting the tree.
+   *
+   * The distinction matters: a drawer that is merely not showing the tree
+   * should cost the page nothing, and should still have the tree when it is
+   * shown again.
+   */
+  private stopWatching(): void {
+    const tree = this.tree;
+    if (!tree || this.#watching === `${tree.engine}:`) {
+      return;
+    }
+    this.#watching = `${tree.engine}:`;
+    void send({ type: 'dom-watch', engine: tree.engine, nodeIds: [] }).catch(() => {
+      // A pane that cannot be told has nothing to stop: it is gone, and its
+      // observers went with its document.
+    });
+  }
+
+  private onDomMutated(event: Extract<Event, { type: 'dom-mutated' }>): void {
+    const tree = this.tree;
+    if (!tree || tree.engine !== event.engine) {
+      return;
+    }
+    const applied = applyChanges(tree, event.changes);
+    this.tree = applied.tree;
+    applied.refetch.forEach(id => this.fetchChildren(id));
+    this.pushWatch();
   }
 
   /**
@@ -999,6 +1362,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     }
     this.answers = answers;
     this.push({ kind: 'answers', answers });
+    this.revealPicked(answers);
     // Each pane is highlighted from its own answer: when two engines put the
     // same element in different places, two rectangles in different places is
     // the finding, and one shared overlay would have to be wrong about one.
@@ -1165,6 +1529,9 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       );
       this.problem = '';
       this.navigate(lastVisited());
+      // A drawer that was open before its engines were has nothing to show
+      // until one of them is up.
+      this.ensureTree();
     } catch (error) {
       pending.forEach(engine => this.#running.delete(engine));
       this.reportError(error);
@@ -1215,6 +1582,32 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
 
   private reportError(error: unknown): void {
     this.problem = error instanceof Error ? error.message : String(error);
+  }
+
+  /**
+   * Put the element that was just picked where the tree can show it.
+   *
+   * The picker answers with handles as well as descriptions, so the row is
+   * already identified — what is left is opening the twisties on the way down
+   * to it. Only the engine whose tree is on screen has anything to say here;
+   * the others answered about their own documents, in handles this tree cannot
+   * use.
+   *
+   * Left alone while picking. Every pointer movement produces another readout,
+   * and a tree that scrolled to each of them would be unreadable — the reveal
+   * is worth doing for the element somebody stopped on, which is the one that
+   * arrives once the mode ends.
+   */
+  private revealPicked(answers: InspectAnswer[]): void {
+    const tree = this.tree;
+    if (!tree || this.picking) {
+      return;
+    }
+    const element = answers.find(answer => answer.engine === tree.engine)?.element;
+    if (!element?.nodeId || !element.ancestors) {
+      return;
+    }
+    this.revealNode(element.nodeId, element.ancestors);
   }
 
   private onEvent(event: Event): void {
@@ -1328,6 +1721,27 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         this.onInspected(event);
         return;
 
+      case 'dom-nodes':
+        this.onDomNodes(event);
+        return;
+
+      case 'dom-found':
+        this.onDomFound(event);
+        return;
+
+      case 'dom-mutated':
+        this.onDomMutated(event);
+        return;
+
+      case 'dom-invalidated':
+        // The pane's document was replaced, or changed so much at once that
+        // describing it costs more than asking again. Either way every handle
+        // in the tree is worthless.
+        if (this.tree?.engine === event.engine) {
+          this.startTree(event.engine);
+        }
+        return;
+
       case 'evaluated': {
         const { id, engine, result } = event;
         this.evaluations = this.evaluations.map(evaluation =>
@@ -1434,8 +1848,11 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     void listen(CHECK_FOR_UPDATES_EVENT, () => void this.checkForUpdate({ asked: true }));
   }
 
-  override updated(): void {
+  override updated(changed: PropertyValues): void {
     this.attachPanes();
+    if (changed.has('tree') || changed.has('searching') || changed.has('matchCount')) {
+      this.pushTree();
+    }
     // The grid keeps its placement in the stylesheet and takes only the one
     // number from here, which is the least that has to be inline for an edge
     // somebody can drag.
@@ -1520,6 +1937,15 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
             .picking=${this.picking}
             .tab=${this.inspectorTab}
             .dock=${this.dock}
+            .tree=${this.tree}
+            .treeEngines=${[...this.#running]}
+            ?searching=${this.searching}
+            .matchCount=${this.matchCount}
+            @devkit-dom-engine=${(event: CustomEvent<Engine>) => this.startTree(event.detail)}
+            @devkit-dom-toggle=${(event: CustomEvent<{ nodeId: string; open: boolean }>) =>
+              this.toggleRow(event.detail.nodeId, event.detail.open)}
+            @devkit-dom-select=${(event: CustomEvent<string>) => this.selectRow(event.detail)}
+            @devkit-dom-search=${(event: CustomEvent<string>) => this.searchTree(event.detail)}
             @devkit-inspector-dock=${(event: CustomEvent<InspectorDock>) =>
               this.setDock(event.detail)}
             @devkit-inspector-tab=${(event: CustomEvent<'elements' | 'console'>) =>
