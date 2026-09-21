@@ -455,10 +455,30 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * the stand-ins stayed drawn in panes the pointer had long left.
    */
   @listenWindow('pointerout')
-  protected handlePointerLeave(event: PointerEvent): void {
+  protected handlePointerOut(event: PointerEvent): void {
     if (event.relatedTarget === null) {
-      this.clearCursors();
+      this.leftTheWindow('pointerout');
     }
+  }
+
+  /**
+   * Take the stand-ins down, and say what noticed.
+   *
+   * Which event reports a pointer leaving the window turns out to depend on
+   * the platform and on how it left — dragged off an edge, snatched away by
+   * another application, moved out slowly enough that the window stops
+   * tracking it. So every signal that can mean it is listened for, and in
+   * development the one that actually fired is named, because the cost of
+   * guessing this wrong is a cursor that sits in a pane the pointer left.
+   */
+  private leftTheWindow(signal: string): void {
+    if (this.#activeEngine === null && this.#pointer === null) {
+      return;
+    }
+    if (import.meta.env.DEV) {
+      void invoke('debug_log', { message: `pointer left the window: ${signal}` }).catch(() => {});
+    }
+    this.clearCursors();
   }
 
   private forwardKey(event: KeyboardEvent, kind: 'keydown' | 'keyup'): void {
@@ -1310,6 +1330,16 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
 
   override firstUpdated(): void {
     this.attachPanes();
+
+    // Not on `window`, which never hears either of these: `mouseleave` and
+    // `pointerleave` do not bubble, so a listener there is only called if the
+    // window is itself the target, which it never is. They are heard on the
+    // document, and they are heard in addition to `pointerout` because no one
+    // of the three can be relied on across platforms.
+    document.addEventListener('mouseleave', () => this.leftTheWindow('mouseleave'));
+    document.documentElement.addEventListener('pointerleave', () =>
+      this.leftTheWindow('pointerleave')
+    );
 
     // Fetched now rather than when a cursor is first needed: an image that
     // arrives mid-movement pops in, and a pane that has none falls back to its

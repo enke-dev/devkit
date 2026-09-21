@@ -66,8 +66,18 @@ const METER_WINDOW_MS = 2000;
 /** A gap longer than this ends a burst: the next frame starts the average afresh. */
 const BURST_GAP_MS = 400;
 
-/** The smallest viewport an engine is asked to render. */
-const MIN_VIEWPORT = { width: 320, height: 240 };
+/**
+ * The smallest viewport an engine is asked to render.
+ *
+ * A guard against a degenerate measurement — a pane measured mid-relayout, or
+ * before it has been laid out at all — and nothing more. It used to be 320x240,
+ * a plausible-looking page size, which was too big to be a guard: three panes
+ * in a window at its 900px minimum are under 300 wide each, so every pane spent
+ * its life clamped. The engines rendered wider than the panes could show, the
+ * frames were clipped, and the size in each header read 320 however narrow the
+ * pane actually was.
+ */
+const MIN_VIEWPORT = { width: 160, height: 120 };
 
 /** Which drawn shape stands in for a CSS cursor keyword. */
 export function drawnCursorFor(css: string): CursorShape {

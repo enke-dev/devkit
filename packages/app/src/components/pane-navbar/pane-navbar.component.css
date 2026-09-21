@@ -159,26 +159,22 @@ ph-sun {
 
 /* Narrow panes ----------------------------------------------------------- */
 
-/* Measured against the pane, not the window: three panes side by side leave
-   each other a third of it, and the header has to fit in whatever that is.
+/* One width, where the full header stops fitting. Everything that can be
+   recovered elsewhere leaves at once: the status word, because the dot beside
+   it already carries the state in colour, and the engine's name and build,
+   because the mark still says which engine this is and the flyout gives the
+   rest back on demand.
 
-   Things leave in order of what can be recovered elsewhere. The status word
-   goes first, because the dot it sits beside already carries the state in
-   colour. The engine's name and build go next, because the mark still says
-   which engine this is and the flyout gives the rest back on demand. */
+   Measured against the header itself, which is the pane's width — see the note
+   on its container above. */
 @container pane-header (width < 380px) {
-  .status .label {
+  .status .label,
+  .name,
+  .version {
     display: none;
   }
 
   .status::before {
     margin-right: 0;
-  }
-}
-
-@container pane-header (width < 300px) {
-  .name,
-  .version {
-    display: none;
   }
 }
