@@ -44,9 +44,10 @@ Two of the four uniform surfaces are still unused:
   channel's coalescing does not transfer — requests are not repeats of each other.
 - **`page.accessibility.snapshot()`** — the accessibility tree. Uniform across the three and
   genuinely divergent between them, which makes it a good fit. The open question is what to compare
-  it *at*: the inspector addresses elements by point, and an a11y snapshot is a whole tree, so
-  either it needs a different addressing scheme or the tree has to be filtered down to the node at
-  the point.
+  it *at*. That question is now half-answered: the elements panel is a real tree, with per-pane
+  handles for rows and an engine-neutral identity chain for the selection, so an a11y snapshot has
+  something to hang off. What is left is whether it compares best as a whole tree beside the DOM
+  one or as the node under the selection.
 
 
 ## Escape hatch for the deep cases

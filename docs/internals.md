@@ -76,8 +76,8 @@ survive a session.
 **Navigation and input are both lockstep.** The address bar drives all three panes to the same URL,
 and clicking, scrolling or typing in any pane is mirrored to all three — the point of the tool is
 watching three engines react to the same thing. Frames render 1:1 at the engine's viewport size, so
-a click lands on the pixel you aimed at. The protocol still addresses panes individually, so driving
-one pane alone is a frontend change.
+a click lands on the pixel you aimed at. The protocol addresses panes individually as well, which is
+what driving one pane alone is built on.
 
 Keyboard goes to the pane under the pointer — there is nothing to click first and no focus ring,
 because "the pane you are pointing at" and "the pane you are driving" are the same thing. The app's
@@ -135,10 +135,22 @@ lag: a pane repainting at 5fps would otherwise give no sign the input registered
 at the frontend's own frame rate, which separates "the input landed" from "the engine has repainted".
 The pane under the real cursor is left alone rather than being given a second one.
 
-The last URL is remembered, so closing and reopening resumes where you left off.
-
 That cursor is **live by design**: it shows where the pointer is, not what any engine did with the
 event. Making it wait for confirmation would put back exactly the lag it exists to hide.
+
+What you visited is remembered, and in two separate places because they answer two different
+questions. The **trail** the back and forward arrows walk is kept across restarts, so reopening the
+app can still step back through yesterday; it is the app's own, not any engine's, because a freshly
+launched engine has no history at all and a restored trail would otherwise light up arrows that do
+nothing. Stepping back is therefore a navigation to the previous URL rather than an engine's
+`goBack()`, which costs what a real back button gives you inside one session — scroll position and
+form state are refetched rather than restored. For a tool whose point is comparing a render, a
+predictable re-render is the better trade. Separately, the **visited list** ranks where you have
+been by how often and how recently, and is what the address bar suggests from as you type.
+
+Both live in the window's local storage, which is a deliberate exception to the ephemeral contexts
+above: the panes keep no cookies or cache between sessions, but where you were is the app's own
+record rather than a page's, and losing it every launch made the arrows ornamental.
 
 Each pane header names its engine, the build behind it — `Chromium 153.0.8010.12`, `Gecko 155.0`,
 `WebKit 26.6` — its current frame rate, and its status. Which build drew a page is the first thing
@@ -329,10 +341,20 @@ signal that the transport, not the engines, is the constraint.
 
 The panes already share a viewport and already mirror input in viewport pixels, so a pair of
 coordinates is the only cross-engine identity an element needs. `document.elementFromPoint(x, y)`
-with the same numbers in each engine is the whole addressing scheme: no selector generation, no
-node handles, nothing to keep in sync. When the engines resolve different elements at the same
+with the same numbers in each engine is the whole of the addressing for a point: no selector
+generation, nothing to keep in sync. When the engines resolve different elements at the same
 point, that is not a failure to reconcile — it is the most interesting thing the feature can
 report, and the panel says so rather than picking one answer to stand for all three.
+
+A tree cannot be addressed that way, because a tree is navigated rather than pointed at, and a row
+that cannot be asked about again is a row that cannot be opened. So the walker keeps a registry and
+hands out **handles** — valid only in the pane that minted them, and only until that pane navigates,
+which they enforce by carrying the document's generation. Nothing compares two panes' handles. What
+crosses between engines is an **identity chain** instead: the tag, the position among same-tag
+siblings, and the boundary each step crossed, walked down from the document. That is what lets one
+selected row be described by all three engines at once, and it is deliberately built from neither id
+nor class — those are what the engines are being compared on, and an identity that moved when a
+class did would call one element two.
 
 Everything goes through `page.evaluate`, which means it works identically on all three engines and
 adds no dependency. The engines' own developer tools stay behind the existing detach pop-out; this

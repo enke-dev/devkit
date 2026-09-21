@@ -13,9 +13,6 @@ belongs in [`docs/internals.md`](../../docs/internals.md), which is where it wil
   where *you* are, not where each engine's pointer actually is
 - [pointer-capture-on-drag.md](pointer-capture-on-drag.md) — dragging out of a pane strands the
   engines with a mouse button held down
-- [per-engine-cursor-shape.md](per-engine-cursor-shape.md) — draw the cursor shape each engine
-  computed, as a cross-browser signal in its own right
-- [single-pane-input.md](single-pane-input.md) — drive one pane instead of all three
 - [sidecar-side-input-pacing.md](sidecar-side-input-pacing.md) — the sidecar trusts the client not
   to flood it
 
@@ -38,12 +35,8 @@ belongs in [`docs/internals.md`](../../docs/internals.md), which is where it wil
   every rebuild is a new identity to whatever was granted permission
 - [dmg-bundling.md](dmg-bundling.md) — the DMG step needs Finder automation permission
 
-## Sessions
-
-- [session-history.md](session-history.md) — the last URL is restored, but back/forward still dies
-  with the session
-
 ## Inspection
 
 - [devtools-for-every-engine.md](devtools-for-every-engine.md) — the comparison inspector is built
-  (elements, console, evaluation); what is left is the network panel and the accessibility tree
+  (a navigable DOM tree, console, evaluation); what is left is the network panel and the
+  accessibility tree
