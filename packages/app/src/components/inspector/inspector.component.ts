@@ -27,6 +27,7 @@ import {
   divergesAt,
   identitySteps,
   levelOf,
+  sourceOf,
   textOf,
   timeOf,
 } from '../../utils/inspect.utils.js';
@@ -539,42 +540,48 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
 
   private renderEntry(entry: ConsoleEntry) {
     const level = levelOf(entry);
+    const source = sourceOf(entry);
     return html`
       <li data-level=${level} data-engine=${entry.engine}>
-        <span class="engine">${ENGINE_LABELS[entry.engine]}</span>
-        <span class="when">${timeOf(entry)}</span>
-        <div class="said">
+        <div class="who">
+          <span class="engine">${ENGINE_LABELS[entry.engine]}</span>
+          <span class="when">${timeOf(entry)}</span>
+        </div>
+        <div class="what">
+          <div class="said">
+            ${
+              entry.type === 'console' && entry.kind !== 'message'
+                ? html`<span class="kind" title=${entry.nativeKind}>${entry.kind}</span>`
+                : nothing
+            }
+            <span class="text">${textOf(entry)}</span>
+            ${
+              entry.type === 'console' && entry.repeats
+                ? html`<span class="repeats">×${entry.repeats}</span>`
+                : nothing
+            }
+            ${
+              entry.dropped
+                ? html`<span class="dropped" title="Messages discarded to keep up">
+                    +${entry.dropped} dropped
+                  </span>`
+                : nothing
+            }
+          </div>
           ${
-            entry.type === 'console' && entry.kind !== 'message'
-              ? html`<span class="kind" title=${entry.nativeKind}>${entry.kind}</span>`
+            entry.type === 'page-error' && entry.stack
+              ? html`<pre class="stack">${entry.stack}</pre>`
               : nothing
           }
-          <span class="text">${textOf(entry)}</span>
           ${
-            entry.type === 'console' && entry.repeats
-              ? html`<span class="repeats">×${entry.repeats}</span>`
-              : nothing
-          }
-          ${
-            entry.dropped
-              ? html`<span class="dropped" title="Messages discarded to keep up">
-                  +${entry.dropped} dropped
-                </span>`
-              : nothing
+            source === null
+              ? nothing
+              : html`<span class="where"
+                  ><span class="head">${source.head}</span
+                  ><span class="tail">${source.tail}</span></span
+                >`
           }
         </div>
-        ${
-          entry.type === 'console' && entry.location
-            ? html`<span class="where"
-                >${entry.location.url}${entry.location.line ? `:${entry.location.line}` : ''}</span
-              >`
-            : nothing
-        }
-        ${
-          entry.type === 'page-error' && entry.stack
-            ? html`<pre class="stack">${entry.stack}</pre>`
-            : nothing
-        }
       </li>
     `;
   }

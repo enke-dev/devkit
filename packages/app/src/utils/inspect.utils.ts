@@ -202,6 +202,28 @@ export function timeOf(entry: ConsoleEntry): string {
   return `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}.${pad(at.getMilliseconds(), 3)}`;
 }
 
+/**
+ * Where a line was printed, split into the part that may be cut and the part
+ * that may not.
+ *
+ * The end of a source is the part worth reading — the file and the line — and
+ * the beginning is the part that repeats on every entry. So the two are
+ * separated here and the head alone is allowed to ellipsise, which truncates
+ * from the left without asking the text direction to do it. Leaning on `rtl`
+ * for that works until a trailing `:42` is reordered by it.
+ */
+export function sourceOf(entry: ConsoleEntry): { head: string; tail: string } | null {
+  if (entry.type !== 'console' || !entry.location) {
+    return null;
+  }
+  const { url, line } = entry.location;
+  const at = line === undefined ? '' : `:${line}`;
+  const cut = url.lastIndexOf('/');
+  return cut === -1
+    ? { head: '', tail: `${url}${at}` }
+    : { head: url.slice(0, cut + 1), tail: `${url.slice(cut + 1)}${at}` };
+}
+
 /** What an entry actually says, which for an error is its message. */
 export function textOf(entry: ConsoleEntry): string {
   return entry.type === 'page-error' ? entry.message : entry.text;

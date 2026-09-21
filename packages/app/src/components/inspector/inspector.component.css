@@ -356,7 +356,15 @@ summary {
   overflow: hidden;
 }
 
+/* The log is the grid, not each row of it: the column under the engines has
+   to be the same width down the whole list, and a grid per entry would size
+   that column to whatever happened to be in that one entry. Each entry is a
+   subgrid, so it keeps its own background and rule while borrowing the
+   columns. */
 .log {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: start;
   min-height: 0;
   margin: 0;
   padding: 0;
@@ -364,18 +372,14 @@ summary {
   list-style: none;
 }
 
-/* Two columns and two rows, the same shape at every width — what used to
-   happen only in a narrow drawer, where the source wrapped under the message
-   of its own accord, now happens on purpose and everywhere.
-
-   Who said it above when it was said; what was said above where it came from.
-   The second row is a footer across both columns in effect, which is why the
-   time and the source sit level with each other. */
+/* Who said it and what was said, side by side; each column reads downwards.
+   Both stretch to the height of the taller, so however far the message wraps,
+   the time and the source stay level along the bottom of the entry. */
 .log li {
   display: grid;
-  grid-template-columns: 78px minmax(0, 1fr);
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
   gap: 0 8px;
-  align-items: baseline;
   padding: 3px 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
   font:
@@ -391,6 +395,15 @@ summary {
 
 .log li[data-level='error'] {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.who,
+.what {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 1px;
+  min-width: 0;
 }
 
 .said {
@@ -415,20 +428,26 @@ summary {
   font-variant-numeric: tabular-nums;
 }
 
-/* Indented under the message rather than under the engine, because it belongs
-   to the message: it is where that line was printed. */
+/* Under the message rather than under the engine, because it belongs to the
+   message: it is where that line was printed. */
 .log .where {
-  grid-column: 2;
+  display: flex;
   margin: 0;
-  overflow: hidden;
   color: var(--text-muted);
   font-size: 10px;
   white-space: nowrap;
+}
+
+/* Only the path in front is allowed to go. What is worth reading — the file
+   and the line — is at the end, and is never cut. */
+.log .head {
+  min-width: 0;
+  overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.log .stack {
-  grid-column: 2;
+.log .tail {
+  flex: none;
 }
 
 .log li[data-level='debug'] .text {
