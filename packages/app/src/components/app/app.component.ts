@@ -111,6 +111,12 @@ const ANSWER_GRACE_MS = 300;
  */
 const SETTLE_REMEASURE_MS = 250;
 
+/** A node to open the tree down to, named the way the pane that found it named it. */
+interface RevealTarget {
+  nodeId: string;
+  ancestors: string[];
+}
+
 /**
  * The watch set as it reads when nothing is being watched.
  *
@@ -180,6 +186,19 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   @state() private accessor tree: DomTree | null = null;
 
   @state() private accessor searching = false;
+
+  /**
+   * The root that has been asked for but has not arrived.
+   *
+   * Reactive because the tree on screen is the previous one until this lands,
+   * and swapping both at once is what keeps the panel coherent — the rows and
+   * the engine they belong to change in the same frame.
+   */
+  @state() private accessor pendingRoot: {
+    id: string;
+    engine: Engine;
+    reveal: RevealTarget | null;
+  } | null = null;
 
   @state() private accessor matchCount: number | null = null;
   @state() private accessor messages: ConsoleEntry[] = [];
@@ -1056,6 +1075,11 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     if (engine === undefined) {
       return;
     }
+    if (this.pendingRoot?.engine === engine) {
+      // Already on its way. Asking again would leave the first answer with no
+      // request to belong to, and the tree would take whichever arrived last.
+      return;
+    }
     if (!this.tree || this.tree.engine !== engine) {
       this.startTree(engine);
       return;
@@ -1067,22 +1091,31 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.pushWatch();
   }
 
-  /** Throw away whatever tree there was and ask this engine for a fresh one. */
-  private startTree(engine: Engine): void {
-    this.tree = emptyTree(engine);
-    this.matchCount = null;
+  /**
+   * Ask an engine for a tree, and show the one that is there until it answers.
+   *
+   * The old tree is deliberately left standing. Emptying it here put a blank
+   * panel on screen for the length of a round trip — read as the tree closing
+   * itself, and as a flicker when the answer was quick — and it also left the
+   * reveal with nowhere to go: a tree with no root has no rows, so everything a
+   * reveal wanted to open had to be asked for against an empty one, which is a
+   * race it sometimes lost.
+   *
+   * So the replacement is assembled from the answer instead, in one step. What
+   * is on screen until then belongs to the engine whose tab is still marked,
+   * which is the honest thing to be showing.
+   */
+  private startTree(engine: Engine, revealTo: RevealTarget | null = null): void {
     // Both belong to the tree being replaced. A reveal that outlived it would
     // ask for its ancestors by handle, be refused, start the tree again, and go
     // round — and the outstanding questions would graft their answers onto
     // whatever had taken their parents' place.
     this.#revealing = null;
     this.#domRequests.clear();
-    // Nothing is expanded in a tree that has just been made, and the pane must
-    // be told before it goes on reporting changes to a document nobody is
-    // holding handles into.
-    this.pushWatch();
+    // Whatever was being watched is about to stop being what is shown.
+    this.stopWatching();
     const { id, done } = sendTracked({ type: 'dom-root', engine, depth: 3 });
-    this.#domRequests.set(id, null);
+    this.pendingRoot = { id, engine, reveal: revealTo };
     void done.catch((error: unknown) => this.reportError(error));
   }
 
@@ -1106,16 +1139,19 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    */
   private switchTreeEngine(engine: Engine): void {
     const wanted = this.answers.find(answer => answer.engine === engine)?.element;
-    this.startTree(engine);
-    if (wanted?.nodeId && wanted.ancestors) {
-      this.revealNode(wanted.nodeId, wanted.ancestors);
-    }
+    this.startTree(
+      engine,
+      wanted?.nodeId && wanted.ancestors
+        ? { nodeId: wanted.nodeId, ancestors: wanted.ancestors }
+        : null
+    );
   }
 
   /** Drop the tree, for a navigation that made every handle in it meaningless. */
   private clearTree(): void {
     this.tree = null;
     this.matchCount = null;
+    this.pendingRoot = null;
     this.#domRequests.clear();
     this.#revealing = null;
     this.#watching = '';
@@ -1147,6 +1183,12 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * and the answer would otherwise graft its subtree onto somebody else's tree.
    */
   private onDomNodes(event: Extract<Event, { type: 'dom-nodes' }>): void {
+    const pending = this.pendingRoot;
+    if (pending && event.id === pending.id) {
+      this.takeRoot(pending, event);
+      return;
+    }
+
     const parentId = this.#domRequests.get(event.id);
     if (parentId === undefined) {
       return;
@@ -1167,6 +1209,35 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.tree = absorb(tree, parentId, event.nodes);
     this.pushWatch();
     this.continueReveal();
+  }
+
+  /**
+   * Swap in the tree that was asked for, and open it where it was asked to be.
+   *
+   * The reveal starts here rather than when the switch was made, which is the
+   * whole point of waiting: the chain it opens hangs off the root, and asking
+   * for its levels before the root existed meant answers arriving for a tree
+   * that had nothing to attach them to.
+   *
+   * An engine that could not answer leaves the previous tree alone. There is
+   * nothing better to show, and a blank panel says something untrue about the
+   * engine rather than about the request.
+   */
+  private takeRoot(
+    pending: NonNullable<AppComponent['pendingRoot']>,
+    event: Extract<Event, { type: 'dom-nodes' }>
+  ): void {
+    this.pendingRoot = null;
+    if (event.error !== undefined) {
+      this.reportError(new Error(event.error));
+      return;
+    }
+    this.tree = absorb(emptyTree(pending.engine), null, event.nodes);
+    this.matchCount = null;
+    this.pushWatch();
+    if (pending.reveal) {
+      this.revealNode(pending.reveal.nodeId, pending.reveal.ancestors);
+    }
   }
 
   /**

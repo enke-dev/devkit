@@ -132,7 +132,8 @@ export class DomTreeComponent extends DevkitElement.withStyles(styles) {
    */
   private followSelection(): void {
     const selected = this.tree.selectedId;
-    if (!this.scroller || selected === null || selected === this.#followed) {
+    const scroller = this.scroller;
+    if (!scroller || selected === null || selected === this.#followed) {
       return;
     }
     const at = rowIndexOf(this.rows, selected);
@@ -140,11 +141,24 @@ export class DomTreeComponent extends DevkitElement.withStyles(styles) {
       // Its ancestors are still arriving; the next update will find it.
       return;
     }
+
+    // Measured from the element, not from what was remembered of it. Both the
+    // scroll position and the height available change without this component
+    // rendering — a dragged split, a resized drawer, a scroll still settling —
+    // and the remembered pair is only as fresh as the last event that happened
+    // to update it. Deciding from a stale height is deciding not to scroll, and
+    // because the decision is latched below it is never revisited.
+    const height = scroller.clientHeight;
+    if (height === 0) {
+      // Nothing is laid out yet, so there is no telling what is in view. Left
+      // unlatched on purpose: the next update measures again.
+      return;
+    }
+
     this.#followed = selected;
     const top = at * ROW_HEIGHT;
-    const bottom = top + ROW_HEIGHT;
-    if (top < this.scrolled || bottom > this.scrolled + this.viewport) {
-      this.scroller.scrollTop = Math.max(0, top - this.viewport / 2);
+    if (top < scroller.scrollTop || top + ROW_HEIGHT > scroller.scrollTop + height) {
+      scroller.scrollTop = Math.max(0, top - height / 2);
     }
   }
 
