@@ -42,10 +42,10 @@ held, ends the question. The permission actually at stake is the much narrower
 This is why it needs no grant from a shell: under a terminal, the same run makes **no AppProtection
 request at all** — the responsible process already holds a grant that short-circuits the check.
 
-**It only bites where real Firefox is installed.** The protection maps
-`~/Library/Application Support/Firefox` to an installed `org.mozilla.firefox`. This machine has
-`/Applications/Firefox.app`. A machine without it should be unaffected — untested, and the cheapest
-thing to confirm next, because it decides whether this is everyone's bug or one setup's.
+This machine happens to have `/Applications/Firefox.app`, and the protected directory is Mozilla's
+either way. Whether an installed Firefox makes any difference is not known and is deliberately not
+relied on: the directory is another app's by name, and nothing here should be built on the guess
+that some machines are exempt.
 
 ## Measured
 
