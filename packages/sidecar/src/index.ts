@@ -5,7 +5,7 @@ import type {
   ColorScheme,
   DomNode,
   Engine,
-  Event,
+  GlobalEvent,
   InspectedElement,
   Request,
   Viewport,
@@ -14,9 +14,11 @@ import { DOM_WATCH_POLL_MS, ENGINES } from '@devkit/protocol';
 
 import { install, probe } from './browsers.js';
 import { closeDetached, detach } from './detached.js';
-import { emit, log } from './emit.js';
+import { emit, emitFor, log } from './emit.js';
 import { closeFrameChannel, connectFrameChannel } from './frame-channel.js';
 import { describe, Pane } from './pane.js';
+import type { Session } from './session.js';
+import { allPanes, closeAllSessions, closeSession, sessionFor } from './session.js';
 
 const require = createRequire(import.meta.url);
 
@@ -28,7 +30,7 @@ function playwrightVersion(): string {
   }
 }
 
-function greeting(): Event {
+function greeting(): GlobalEvent {
   return {
     type: 'hello',
     pid: process.pid,
@@ -37,28 +39,25 @@ function greeting(): Event {
   };
 }
 
-const panes = new Map<Engine, Pane>();
-let viewport: Viewport = { width: 1280, height: 800, scale: 1 };
-let colorScheme: ColorScheme = 'light';
-
 /**
- * The panes a command is addressed to.
+ * The panes a command is addressed to, within the session that sent it.
  *
  * `'all'` is the ordinary case for anything the panes do in lockstep; naming
  * one engine is for the things that are worth doing to a single pane, and for
- * an engine that is not running it is simply nobody.
+ * an engine that is not running it is simply nobody. Never anybody else's
+ * panes: an engine names a column of one window, not every Chromium running.
  */
-function targets(engine: Engine | 'all'): Pane[] {
+function targets(session: Session, engine: Engine | 'all'): Pane[] {
   if (engine === 'all') {
-    return [...panes.values()];
+    return [...session.panes.values()];
   }
-  const pane = panes.get(engine);
+  const pane = session.panes.get(engine);
   return pane === undefined ? [] : [pane];
 }
 
-/** Run an action on every live pane, reporting per-engine failures without failing the batch. */
-async function forEachPane(action: (pane: Pane) => Promise<void>): Promise<void> {
-  const results = await Promise.allSettled([...panes.values()].map(action));
+/** Run an action on every live pane of one session, reporting per-engine failures without failing the batch. */
+async function forEachPane(session: Session, action: (pane: Pane) => Promise<void>): Promise<void> {
+  const results = await Promise.allSettled([...session.panes.values()].map(action));
   results
     .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
     .forEach(result => log('warn', describe(result.reason)));
@@ -73,52 +72,58 @@ async function forEachPane(action: (pane: Pane) => Promise<void>): Promise<void>
  * the link you are hovering — is the one that never gets sampled.
  */
 const CURSOR_SAMPLE_MS = 80;
-const lastCursorCss = new Map<Engine, string>();
-let cursorSampleAt = 0;
-let cursorTrailing: NodeJS.Timeout | null = null;
 
-async function readCursorNow(engine: Engine, x: number, y: number): Promise<void> {
-  cursorSampleAt = Date.now();
-  const css = await panes.get(engine)?.readCursor(x, y);
-  if (!css || lastCursorCss.get(engine) === css) {
+async function readCursorNow(
+  session: Session,
+  engine: Engine,
+  x: number,
+  y: number
+): Promise<void> {
+  session.cursorSampleAt = Date.now();
+  const css = await session.panes.get(engine)?.readCursor(x, y);
+  if (!css || session.lastCursorCss.get(engine) === css) {
     return;
   }
-  lastCursorCss.set(engine, css);
-  emit({ type: 'cursor', engine, css });
+  session.lastCursorCss.set(engine, css);
+  emitFor(session.id, { type: 'cursor', engine, css });
 }
 
-function sampleCursor(engine: Engine, x: number, y: number): void {
-  if (cursorTrailing) {
-    clearTimeout(cursorTrailing);
+function sampleCursor(session: Session, engine: Engine, x: number, y: number): void {
+  if (session.cursorTrailing) {
+    clearTimeout(session.cursorTrailing);
   }
 
-  const elapsed = Date.now() - cursorSampleAt;
+  const elapsed = Date.now() - session.cursorSampleAt;
   if (elapsed >= CURSOR_SAMPLE_MS) {
-    void readCursorNow(engine, x, y);
+    void readCursorNow(session, engine, x, y);
     return;
   }
   // Too soon: remember this position and sample it once the window closes, so
   // the final resting position is always the one reported.
-  cursorTrailing = setTimeout(() => void readCursorNow(engine, x, y), CURSOR_SAMPLE_MS - elapsed);
+  session.cursorTrailing = setTimeout(
+    () => void readCursorNow(session, engine, x, y),
+    CURSOR_SAMPLE_MS - elapsed
+  );
 }
 
 /** Forget the sampled cursor, so re-entering a pane reports afresh. */
-function resetCursor(): void {
-  lastCursorCss.clear();
+function resetCursor(session: Session): void {
+  session.lastCursorCss.clear();
 }
 
 async function start(
+  session: Session,
   engines: Engine[],
   nextViewport: Viewport,
   nextColorScheme: ColorScheme
 ): Promise<void> {
-  viewport = nextViewport;
-  colorScheme = nextColorScheme;
+  session.viewport = nextViewport;
+  session.colorScheme = nextColorScheme;
   const wanted = engines.filter(engine => ENGINES.includes(engine));
 
   await Promise.allSettled(
     wanted.map(async engine => {
-      const existing = panes.get(engine);
+      const existing = session.panes.get(engine);
       if (existing?.alive) {
         // Alive is not the same as working: a pane whose capture failed to start
         // has a browser, a page, and nothing on screen. Asking to start it again
@@ -127,7 +132,7 @@ async function start(
         // The pane is fine, but whoever asked may not know that: a reloaded
         // frontend has no state and would otherwise show a live pane as idle,
         // with no version, until something happened to restart it.
-        emit({ type: 'pane', engine, status: 'live', version: existing.version });
+        emitFor(session.id, { type: 'pane', engine, status: 'live', version: existing.version });
         return;
       }
 
@@ -137,17 +142,23 @@ async function start(
       // restarting the app.
       if (existing) {
         log('info', `${engine} pane was dead; relaunching`);
-        panes.delete(engine);
+        session.panes.delete(engine);
         await existing.close().catch(() => {});
       }
 
-      const pane = new Pane(engine, viewport, colorScheme);
-      panes.set(engine, pane);
+      const pane = new Pane(
+        session.id,
+        session.slot,
+        engine,
+        session.viewport,
+        session.colorScheme
+      );
+      session.panes.set(engine, pane);
       try {
         await pane.start();
       } catch {
         // `pane.start` already reported the failure; drop it so a retry can relaunch.
-        panes.delete(engine);
+        session.panes.delete(engine);
       }
     })
   );
@@ -162,16 +173,22 @@ async function start(
  * be reported if one failure sinks the batch.
  */
 async function answerInspect(
+  session: Session,
   id: string,
   engine: Engine | 'all',
   ask: (pane: Pane) => Promise<InspectedElement | null>
 ): Promise<void> {
   await Promise.all(
-    targets(engine).map(async pane => {
+    targets(session, engine).map(async pane => {
       try {
-        emit({ type: 'inspected', id, engine: pane.engine, element: await ask(pane) });
+        emitFor(session.id, {
+          type: 'inspected',
+          id,
+          engine: pane.engine,
+          element: await ask(pane),
+        });
       } catch (error) {
-        emit({
+        emitFor(session.id, {
           type: 'inspected',
           id,
           engine: pane.engine,
@@ -191,15 +208,17 @@ async function answerInspect(
  * and none of that may sink the question for the others.
  */
 async function answerDomNodes(
+  session: Session,
   id: string,
   engine: Engine | 'all',
   ask: (pane: Pane) => Promise<DomNode[] | null>
 ): Promise<void> {
   await Promise.all(
-    targets(engine).map(async pane => {
+    targets(session, engine).map(async pane => {
       try {
         const nodes = await ask(pane);
-        emit(
+        emitFor(
+          session.id,
           nodes === null
             ? {
                 type: 'dom-nodes',
@@ -214,7 +233,13 @@ async function answerDomNodes(
             : { type: 'dom-nodes', id, engine: pane.engine, nodes }
         );
       } catch (error) {
-        emit({ type: 'dom-nodes', id, engine: pane.engine, nodes: [], error: describe(error) });
+        emitFor(session.id, {
+          type: 'dom-nodes',
+          id,
+          engine: pane.engine,
+          nodes: [],
+          error: describe(error),
+        });
       }
     })
   );
@@ -232,7 +257,7 @@ async function answerDomNodes(
 let domPoll: NodeJS.Timeout | null = null;
 
 async function pollDom(): Promise<void> {
-  const watching = [...panes.values()].filter(pane => pane.watchingDom);
+  const watching = allPanes().filter(pane => pane.watchingDom);
   if (watching.length === 0) {
     if (domPoll) {
       clearInterval(domPoll);
@@ -248,17 +273,17 @@ async function pollDom(): Promise<void> {
         return;
       }
       if (drained === 'invalidated') {
-        emit({ type: 'dom-invalidated', engine: pane.engine });
+        emitFor(pane.session, { type: 'dom-invalidated', engine: pane.engine });
         return;
       }
-      emit({ type: 'dom-mutated', engine: pane.engine, changes: drained });
+      emitFor(pane.session, { type: 'dom-mutated', engine: pane.engine, changes: drained });
     })
   );
 }
 
 /** Start the poll if anything is watching and it is not already running. */
 function armDomPoll(): void {
-  if (domPoll || ![...panes.values()].some(pane => pane.watchingDom)) {
+  if (domPoll || !allPanes().some(pane => pane.watchingDom)) {
     return;
   }
   // Unreferenced: watching a tree should not be the reason the process stays up.
@@ -266,7 +291,7 @@ function armDomPoll(): void {
   domPoll.unref();
 }
 
-async function handle(request: Request): Promise<void> {
+async function handle(session: Session, request: Request): Promise<void> {
   switch (request.type) {
     case 'probe':
       // Repeat the greeting: it is written once at spawn, which is before the
@@ -284,30 +309,30 @@ async function handle(request: Request): Promise<void> {
     }
 
     case 'start':
-      await start(request.engines, request.viewport, request.colorScheme);
+      await start(session, request.engines, request.viewport, request.colorScheme);
       return;
 
     case 'navigate':
       // The new page has its own idea of what is under the pointer.
-      resetCursor();
-      await forEachPane(pane => pane.navigate(request.url));
+      resetCursor(session);
+      await forEachPane(session, pane => pane.navigate(request.url));
       return;
 
     case 'reload':
-      await forEachPane(pane => pane.reload());
+      await forEachPane(session, pane => pane.reload());
       return;
 
     case 'resize':
-      viewport = request.viewport;
-      await forEachPane(pane => pane.resize(viewport));
+      session.viewport = request.viewport;
+      await forEachPane(session, pane => pane.resize(session.viewport));
       return;
 
     case 'color-scheme':
-      await panes.get(request.engine)?.setColorScheme(request.scheme);
+      await session.panes.get(request.engine)?.setColorScheme(request.scheme);
       return;
 
     case 'detach': {
-      const pane = panes.get(request.engine);
+      const pane = session.panes.get(request.engine);
       const url = pane?.page?.url();
       if (!pane || !url) {
         throw new Error(`${request.engine} pane is not running`);
@@ -320,13 +345,13 @@ async function handle(request: Request): Promise<void> {
       // Only the pane under the pointer is asked about the cursor, and only
       // while the pointer is moving over it.
       if (request.source && request.event.kind === 'mousemove') {
-        sampleCursor(request.source, request.event.x, request.event.y);
+        sampleCursor(session, request.source, request.event.x, request.event.y);
       }
 
       // A pane that is mid-navigation will reject input; that is expected and
       // must not fail the event for the other panes.
       const results = await Promise.allSettled(
-        targets(request.engine).map(pane => pane.applyInput(request.event))
+        targets(session, request.engine).map(pane => pane.applyInput(request.event))
       );
       results
         .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
@@ -335,23 +360,27 @@ async function handle(request: Request): Promise<void> {
     }
 
     case 'inspect':
-      await answerInspect(request.id, request.engine, pane => pane.inspect(request.x, request.y));
+      await answerInspect(session, request.id, request.engine, pane =>
+        pane.inspect(request.x, request.y)
+      );
       return;
 
     case 'remeasure':
-      await answerInspect(request.id, request.engine, pane => pane.remeasure());
+      await answerInspect(session, request.id, request.engine, pane => pane.remeasure());
       return;
 
     case 'deselect':
-      await Promise.all(targets(request.engine).map(pane => pane.deselect()));
+      await Promise.all(targets(session, request.engine).map(pane => pane.deselect()));
       return;
 
     case 'dom-root':
-      await answerDomNodes(request.id, request.engine, pane => pane.domRoot(request.depth));
+      await answerDomNodes(session, request.id, request.engine, pane =>
+        pane.domRoot(request.depth)
+      );
       return;
 
     case 'dom-children':
-      await answerDomNodes(request.id, request.engine, pane =>
+      await answerDomNodes(session, request.id, request.engine, pane =>
         pane.domChildren(request.nodeId, request.depth)
       );
       return;
@@ -359,34 +388,46 @@ async function handle(request: Request): Promise<void> {
     case 'dom-describe':
       // Answered by `inspected`, the same event a point inspect produces: the
       // tree changed how an element is named, not what is said about it.
-      await answerInspect(request.id, request.engine, pane => pane.domDescribe(request.steps));
+      await answerInspect(session, request.id, request.engine, pane =>
+        pane.domDescribe(request.steps)
+      );
       return;
 
     case 'dom-search': {
-      const pane = panes.get(request.engine);
+      const pane = session.panes.get(request.engine);
       const matches = pane ? await pane.domSearch(request.query, request.limit) : [];
-      emit({ type: 'dom-found', id: request.id, engine: request.engine, matches });
+      emitFor(session.id, {
+        type: 'dom-found',
+        id: request.id,
+        engine: request.engine,
+        matches,
+      });
       return;
     }
 
     case 'dom-watch':
       await Promise.all(
-        targets(request.engine).map(pane => pane.domWatch(request.nodeIds).catch(() => {}))
+        targets(session, request.engine).map(pane => pane.domWatch(request.nodeIds).catch(() => {}))
       );
       armDomPoll();
       return;
 
     case 'evaluate': {
       await Promise.all(
-        targets(request.engine).map(async pane => {
+        targets(session, request.engine).map(async pane => {
           try {
             const result = await pane.evaluate(request.expression);
-            emit({ type: 'evaluated', id: request.id, engine: pane.engine, result });
+            emitFor(session.id, {
+              type: 'evaluated',
+              id: request.id,
+              engine: pane.engine,
+              result,
+            });
           } catch (error) {
             // An expression that threw is answered by the page itself; this is
             // the pane failing to be asked at all, which is still an answer the
             // column has to show rather than a blank.
-            emit({
+            emitFor(session.id, {
               type: 'evaluated',
               id: request.id,
               engine: pane.engine,
@@ -397,6 +438,16 @@ async function handle(request: Request): Promise<void> {
       );
       return;
     }
+
+    case 'close-session':
+      await closeSession(session.id);
+      return;
+
+    case 'suspend-session':
+      // Declared in the protocol so the shape is settled; a window that asks
+      // for it today is answered without being lied to about what happened.
+      log('debug', `suspend-session is not implemented yet (${String(request.suspended)})`);
+      return;
 
     case 'shutdown':
       await shutdown(0);
@@ -415,7 +466,7 @@ async function handle(request: Request): Promise<void> {
 const HEARTBEAT_MS = 3000;
 
 function heartbeat(): void {
-  panes.forEach(pane => {
+  allPanes().forEach(pane => {
     // A browser that went without a word, which the pane says once however it
     // is noticed.
     pane.checkAlive();
@@ -430,9 +481,7 @@ function heartbeat(): void {
 
 async function shutdown(code: number): Promise<void> {
   closeFrameChannel();
-  const closing = [...panes.values()].map(pane => pane.close());
-  panes.clear();
-  await Promise.allSettled([...closing, closeDetached()]);
+  await Promise.allSettled([closeAllSessions(), closeDetached()]);
   process.exit(code);
 }
 
@@ -479,11 +528,15 @@ function main(): void {
     }
 
     queue = queue.then(async () => {
+      // Named before the command runs, so the ack goes back to whoever asked
+      // even when the command was `close-session` and the session is gone by
+      // the time there is anything to say about it.
+      const session = sessionFor(request.session, request.slot);
       try {
-        await handle(request);
-        emit({ type: 'ack', id: request.id, ok: true });
+        await handle(session, request);
+        emitFor(session.id, { type: 'ack', id: request.id, ok: true });
       } catch (error) {
-        emit({ type: 'ack', id: request.id, ok: false, error: describe(error) });
+        emitFor(session.id, { type: 'ack', id: request.id, ok: false, error: describe(error) });
       }
     });
   });

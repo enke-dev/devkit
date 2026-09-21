@@ -11,6 +11,40 @@ export const ENGINES = ['chromium', 'firefox', 'webkit'] as const;
 
 export type Engine = (typeof ENGINES)[number];
 
+/**
+ * Which comparison a message belongs to.
+ *
+ * One session is one window: three engines, one URL, one trail. Everything the
+ * sidecar holds is per session, because two windows looking at two pages share
+ * nothing but the process they run in.
+ *
+ * The id is the Tauri window's own label, which the backend stamps on every
+ * command as it relays it. Nothing allocates one: a label is already unique,
+ * already stable for the life of the window, and already what the backend has
+ * to name when it routes a reply back to a single webview.
+ */
+export type SessionId = string;
+
+/**
+ * The session every message belongs to until one is named.
+ *
+ * Here for whoever drives the sidecar directly — the `verify:*` scripts, which
+ * are the host in their own right and have no windows to take labels from.
+ */
+export const DEFAULT_SESSION: SessionId = 'default';
+
+/**
+ * The frame channel's shorthand for a session, assigned by the backend.
+ *
+ * A frame header is fixed-width and read on every frame, so it carries a byte
+ * rather than a label. The backend hands out the number with the first command
+ * of a session and maps it back on the way in; the sidecar only echoes it.
+ */
+export type SessionSlot = number;
+
+/** Slots are a byte, so this is what a machine can compare at once. */
+export const MAX_SESSIONS = 255;
+
 /** Human-facing engine labels. Gecko/WebKit are the engines, Firefox/Safari the browsers. */
 export const ENGINE_LABELS: Record<Engine, string> = {
   chromium: 'Chromium',
@@ -236,6 +270,23 @@ export type Command =
    * Answers come back as `evaluated` events carrying this command's `id`.
    */
   | { type: 'evaluate'; engine: Engine | 'all'; expression: string }
+  /**
+   * Close this session's panes and forget it.
+   *
+   * Sent by the backend when a window is destroyed rather than by the window
+   * itself: a webview that is going away cannot be relied on to finish an
+   * async send, and a session nobody closes keeps three browsers alive with
+   * nothing to show them to.
+   */
+  | { type: 'close-session' }
+  /**
+   * Stop or resume capturing for this session, without closing anything.
+   *
+   * For a window nobody can see — a background tab — where the pages should
+   * keep running but the pictures are worth nothing. Declared here so the shape
+   * is settled; not implemented yet.
+   */
+  | { type: 'suspend-session'; suspended: boolean }
   /** Close all contexts and browsers, then exit. */
   | { type: 'shutdown' };
 
@@ -249,8 +300,25 @@ export type InputEvent =
   | { kind: 'keyup'; key: string }
   | { kind: 'text'; text: string };
 
-/** A command with the correlation id the sidecar echoes back in its `ack`. */
-export type Request = Command & { id: string };
+/**
+ * A command with the correlation id the sidecar echoes back in its `ack`, and
+ * the session it is addressed to.
+ *
+ * Both are on the envelope rather than on the commands themselves: every
+ * command has them, none of them mean anything different from one variant to
+ * the next, and stating them twenty times over would be twenty places to forget
+ * one.
+ *
+ * The session is stamped by the backend from the webview that invoked the
+ * command, not by the frontend — a window cannot then claim to be another one,
+ * and cannot forget to say which it is. `slot` comes from the same place, for
+ * the frame headers to carry.
+ */
+export type Request = Command & {
+  id: string;
+  session?: SessionId;
+  slot?: SessionSlot;
+};
 
 // ---------------------------------------------------------------------------
 // Sidecar -> host
@@ -484,6 +552,40 @@ export type Event =
        */
       dropped?: number;
     };
+
+/**
+ * The events that describe the process rather than a comparison.
+ *
+ * These are the only ones the backend broadcasts to every window. A second
+ * window has the same sidecar, the same installed browsers and the same
+ * download in progress as the first, and hearing about them once per window
+ * would be three frontends showing the same install bar.
+ */
+export const GLOBAL_EVENTS = ['hello', 'browsers', 'install-progress', 'log'] as const;
+
+export type GlobalEvent = Extract<Event, { type: (typeof GLOBAL_EVENTS)[number] }>;
+
+/**
+ * Everything else: an event about one session's panes, and nobody else's.
+ *
+ * `ack` is among them, which is worth saying because it looks like plumbing:
+ * it answers a command that one window sent, and a window that resolved another
+ * window's promise would be waiting forever on its own.
+ */
+export type SessionScopedEvent = Exclude<Event, GlobalEvent>;
+
+/**
+ * An event as it travels: session-scoped ones say which session.
+ *
+ * Required rather than optional, because the sidecar has no way to send one of
+ * these without saying — `emitFor` is the only door they fit through.
+ */
+export type Emission = GlobalEvent | (SessionScopedEvent & { session: SessionId });
+
+/** Whether an event describes the process rather than one session's panes. */
+export function isGlobalEvent(event: Event): event is GlobalEvent {
+  return (GLOBAL_EVENTS as readonly string[]).includes(event.type);
+}
 
 // ---------------------------------------------------------------------------
 // Introspection
@@ -1117,17 +1219,20 @@ export type PaneStatus =
  * | 12     | 1    | engine, as an index into `ENGINES`        |
  * | 13     | 1    | 1 if this is a settled sharp capture     |
  * | 14     | 1    | 0 for JPEG, 1 for PNG                    |
- * | 15     | 1    | unused                                   |
+ * | 15     | 1    | session slot, as handed out by the backend |
  */
 export const FRAME_PORT_ENV = 'DEVKIT_FRAME_PORT';
 export const FRAME_TOKEN_ENV = 'DEVKIT_FRAME_TOKEN';
 export const FRAME_HEADER_BYTES = 16;
 
 /**
- * URI scheme the backend serves frame bytes on, as `<scheme>://<engine>/<seq>`.
+ * URI scheme the backend serves frame bytes on, as
+ * `<scheme>://<session>/<engine>/<seq>`.
  *
  * The sequence number is part of the path purely to defeat caching: each frame
- * is a new URL, so the webview never serves a stale one.
+ * is a new URL, so the webview never serves a stale one. The session is there
+ * because two windows have a Chromium each, and a path that named only the
+ * engine would hand one window the other's picture.
  */
 export const FRAME_SCHEME = 'devkit-frame';
 

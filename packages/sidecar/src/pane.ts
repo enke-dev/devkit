@@ -8,6 +8,9 @@ import type {
   InputEvent,
   InspectedElement,
   PaneBlocker,
+  SessionId,
+  SessionScopedEvent,
+  SessionSlot,
   SourceLocation,
   Viewport,
 } from '@devkit/protocol';
@@ -16,7 +19,7 @@ import type { Browser, BrowserContext, Page } from 'playwright';
 import { chromium, firefox, webkit } from 'playwright';
 
 import { ConsoleRelay } from './console.js';
-import { emit, log } from './emit.js';
+import { emitFor, log } from './emit.js';
 import { sendFrame } from './frame-channel.js';
 import type { Screencast } from './screencast.js';
 import { startScreencast } from './screencast.js';
@@ -188,6 +191,10 @@ const SHARP_ECHO_MS = 250;
  * cookies, cache or history outlive the pane.
  */
 export class Pane {
+  /** The comparison this pane belongs to; every event it sends says so. */
+  readonly session: SessionId;
+  /** The same session as the frame headers carry it. */
+  readonly slot: SessionSlot;
   readonly engine: Engine;
 
   #browser: Browser | null = null;
@@ -292,10 +299,28 @@ export class Pane {
   /** Frames ignored as the settled pane's own doing, since it last really changed. */
   #explainedFrames = 0;
 
-  constructor(engine: Engine, viewport: Viewport, colorScheme: ColorScheme) {
+  constructor(
+    session: SessionId,
+    slot: SessionSlot,
+    engine: Engine,
+    viewport: Viewport,
+    colorScheme: ColorScheme
+  ) {
+    this.session = session;
+    this.slot = slot;
     this.engine = engine;
     this.#viewport = viewport;
     this.#colorScheme = colorScheme;
+  }
+
+  /**
+   * Say something about this pane, to the window that owns it.
+   *
+   * Every event a pane sends is about one comparison, so the session is stated
+   * here once rather than at each of the places that send one.
+   */
+  #emit(event: SessionScopedEvent): void {
+    emitFor(this.session, event);
   }
 
   get page(): Page | null {
@@ -337,7 +362,7 @@ export class Pane {
       return;
     }
     this.#announcedClosed = true;
-    emit({
+    this.#emit({
       type: 'pane',
       engine: this.engine,
       status: 'closed',
@@ -376,7 +401,7 @@ export class Pane {
     this.#closing = false;
     this.#announcedClosed = false;
     this.#launched = false;
-    emit({ type: 'pane', engine: this.engine, status: 'launching' });
+    this.#emit({ type: 'pane', engine: this.engine, status: 'launching' });
     try {
       this.#browser = await launchers[this.engine].launch({
         headless: true,
@@ -400,17 +425,22 @@ export class Pane {
       this.#lastSelectionAt = '';
       this.#hasSelection = false;
       this.#repairedWalker = false;
-      this.#console = new ConsoleRelay(this.engine);
+      this.#console = new ConsoleRelay(this.session, this.engine);
       this.#watchConsole(this.#page);
       await this.#startCapture();
       // The build number travels with the status: a pane is only comparable to
       // the others if you know which build drew it.
       this.#launched = true;
-      emit({ type: 'pane', engine: this.engine, status: 'live', version: this.#browser.version() });
+      this.#emit({
+        type: 'pane',
+        engine: this.engine,
+        status: 'live',
+        version: this.#browser.version(),
+      });
     } catch (error) {
       const detail = describe(error);
       const blocked = blockerFor(detail);
-      emit({
+      this.#emit({
         type: 'pane',
         engine: this.engine,
         status: 'failed',
@@ -546,7 +576,7 @@ export class Pane {
   #watchNavigation(page: Page): void {
     const report = async (loading: boolean) => {
       try {
-        emit({
+        this.#emit({
           type: 'navigation',
           engine: this.engine,
           url: page.url(),
@@ -579,7 +609,7 @@ export class Pane {
       void report(false);
     });
     page.on('crash', () =>
-      emit({ type: 'pane', engine: this.engine, status: 'failed', detail: 'page crashed' })
+      this.#emit({ type: 'pane', engine: this.engine, status: 'failed', detail: 'page crashed' })
     );
   }
 
@@ -632,7 +662,7 @@ export class Pane {
     } catch (error) {
       // Say so rather than leaving a pane that looks idle: the frontend brings
       // a failed pane back, and a pane with no capture shows nothing forever.
-      emit({
+      this.#emit({
         type: 'pane',
         engine: this.engine,
         status: 'failed',
@@ -823,7 +853,7 @@ export class Pane {
       return;
     }
     this.#lastSelectionAt = where;
-    emit({ type: 'selection', engine: this.engine, element });
+    this.#emit({ type: 'selection', engine: this.engine, element });
   }
 
   /**
@@ -1508,6 +1538,7 @@ export class Pane {
   #send(buffer: Buffer, size: { width: number; height: number } | null, sharp: boolean): void {
     this.#showingSharp = sharp;
     sendFrame({
+      slot: this.slot,
       engine: this.engine,
       seq: this.#seq++,
       width: size?.width ?? this.#viewport.width,

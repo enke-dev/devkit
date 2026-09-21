@@ -1,4 +1,10 @@
-import type { ConsoleKind, ConsoleLevel, Engine, SourceLocation } from '@devkit/protocol';
+import type {
+  ConsoleKind,
+  ConsoleLevel,
+  Engine,
+  SessionId,
+  SourceLocation,
+} from '@devkit/protocol';
 import {
   CONSOLE_COALESCE_MS,
   CONSOLE_MESSAGE_TYPES,
@@ -6,7 +12,7 @@ import {
   UNKNOWN_CONSOLE_MESSAGE,
 } from '@devkit/protocol';
 
-import { emit } from './emit.js';
+import { emitFor } from './emit.js';
 
 interface Pending {
   level: ConsoleLevel;
@@ -51,6 +57,7 @@ function sameMessage(a: Pending, b: Pending): boolean {
  * `evaluate`, and that answers on its own path.
  */
 export class ConsoleRelay {
+  readonly #session: SessionId;
   readonly #engine: Engine;
 
   #seq = 0;
@@ -62,7 +69,8 @@ export class ConsoleRelay {
   #sent = 0;
   #windowAt = 0;
 
-  constructor(engine: Engine) {
+  constructor(session: SessionId, engine: Engine) {
+    this.#session = session;
     this.#engine = engine;
   }
 
@@ -110,7 +118,7 @@ export class ConsoleRelay {
     if (!this.#allowed()) {
       return;
     }
-    emit({
+    emitFor(this.#session, {
       type: 'page-error',
       engine: this.#engine,
       seq: this.#seq++,
@@ -137,7 +145,7 @@ export class ConsoleRelay {
       return;
     }
 
-    emit({
+    emitFor(this.#session, {
       type: 'console',
       engine: this.#engine,
       seq: this.#seq++,

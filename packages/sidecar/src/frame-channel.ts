@@ -1,7 +1,7 @@
 import type { Socket } from 'node:net';
 import { connect } from 'node:net';
 
-import type { Engine } from '@devkit/protocol';
+import type { Engine, SessionSlot } from '@devkit/protocol';
 import { ENGINES, FRAME_HEADER_BYTES, FRAME_PORT_ENV, FRAME_TOKEN_ENV } from '@devkit/protocol';
 
 import { log } from './emit.js';
@@ -15,8 +15,10 @@ import { log } from './emit.js';
  * header. The format is described in `packages/protocol/src/index.ts`.
  *
  * Frames are dropped when the socket is backed up, keeping only the newest per
- * engine, for the same reason stdout does: a stale frame is worth nothing when a
- * newer one is already on its way.
+ * pane, for the same reason stdout does: a stale frame is worth nothing when a
+ * newer one is already on its way. Per *pane*, not per engine: two sessions
+ * each have a Chromium, and one of them superseding the other's frame would
+ * leave a window looking at a picture of somebody else's page.
  */
 
 /**
@@ -27,24 +29,27 @@ import { log } from './emit.js';
  * two numbers disagree, this says by how much.
  */
 const debugFrames = process.env['DEVKIT_DEBUG_FRAMES'] === '1';
-const produced = new Map<Engine, number>();
-const dropped = new Map<Engine, number>();
+const produced = new Map<string, number>();
+const dropped = new Map<string, number>();
 
-function bump(counter: Map<Engine, number>, engine: Engine): void {
-  counter.set(engine, (counter.get(engine) ?? 0) + 1);
+/** What a pane is called where a session and an engine both have to be named. */
+function paneKey(slot: SessionSlot, engine: Engine): string {
+  return `${slot}:${engine}`;
+}
+
+function bump(counter: Map<string, number>, key: string): void {
+  counter.set(key, (counter.get(key) ?? 0) + 1);
 }
 
 if (debugFrames) {
   setInterval(() => {
-    const engines = new Set([...produced.keys(), ...dropped.keys()]);
-    if (engines.size === 0) {
+    const panes = new Set([...produced.keys(), ...dropped.keys()]);
+    if (panes.size === 0) {
       return;
     }
-    const line = [...engines]
+    const line = [...panes]
       .sort()
-      .map(
-        engine => `${engine} ${produced.get(engine) ?? 0}/s (dropped ${dropped.get(engine) ?? 0})`
-      )
+      .map(pane => `${pane} ${produced.get(pane) ?? 0}/s (dropped ${dropped.get(pane) ?? 0})`)
       .join('  ');
     process.stderr.write(`frames: ${line}\n`);
     produced.clear();
@@ -55,7 +60,7 @@ if (debugFrames) {
 let socket: Socket | null = null;
 let ready = false;
 let draining = false;
-const pending = new Map<Engine, Buffer>();
+const pending = new Map<string, Buffer>();
 
 export function connectFrameChannel(): void {
   const port = Number(process.env[FRAME_PORT_ENV]);
@@ -104,12 +109,12 @@ function flush(): void {
   }
   const queued = [...pending.entries()];
   pending.clear();
-  queued.forEach(([engine, message]) => {
+  queued.forEach(([pane, message]) => {
     // Backing up again mid-flush puts the rest back rather than discarding
     // them: dropping is a decision for `sendFrame`, where a newer frame is
     // known to exist, not an accident of write ordering.
     if (draining) {
-      pending.set(engine, message);
+      pending.set(pane, message);
     } else {
       write(message);
     }
@@ -117,6 +122,7 @@ function flush(): void {
 }
 
 export function sendFrame(frame: {
+  slot: SessionSlot;
   engine: Engine;
   seq: number;
   width: number;
@@ -133,18 +139,20 @@ export function sendFrame(frame: {
   header.writeUInt8(ENGINES.indexOf(frame.engine), 12);
   header.writeUInt8(frame.sharp ? 1 : 0, 13);
   header.writeUInt8(frame.png ? 1 : 0, 14);
+  header.writeUInt8(frame.slot, 15);
 
   const message = Buffer.concat([header, frame.payload]);
+  const key = paneKey(frame.slot, frame.engine);
   if (debugFrames) {
-    bump(produced, frame.engine);
+    bump(produced, key);
   }
 
   if (!ready || draining) {
-    if (debugFrames && pending.has(frame.engine)) {
-      bump(dropped, frame.engine);
+    if (debugFrames && pending.has(key)) {
+      bump(dropped, key);
     }
     // Newest only: an older frame has no value once a newer one exists.
-    pending.set(frame.engine, message);
+    pending.set(key, message);
     return;
   }
   write(message);
