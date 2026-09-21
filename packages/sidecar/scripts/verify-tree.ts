@@ -295,6 +295,27 @@ async function run(engine: EngineName, origin: string): Promise<void> {
       identities.set(engine, steps.join('/'));
     }
 
+    // --- revealing, which is what switching engines does ------------------------
+    // The app opens one engine's tree to what another engine had selected by
+    // walking the chain that engine's own description came back with. Each
+    // ancestor's children have to arrive, and the last of them has to contain
+    // the node — otherwise the tree opens to the right depth and selects
+    // nothing.
+    const chain = described?.ancestors ?? [];
+    const walked = await Promise.all(chain.map(id => children(page, id, 0)));
+    check(
+      engine,
+      'every ancestor on the way can be opened',
+      walked.every(rows => rows !== null),
+      `${walked.filter(rows => rows !== null).length}/${chain.length} opened`
+    );
+    check(
+      engine,
+      'the last of them holds the node',
+      (walked[walked.length - 1] ?? []).some(row => row.nodeId === described?.nodeId),
+      (walked[walked.length - 1] ?? []).map(row => row.step).join(', ') || 'nothing'
+    );
+
     // --- watching -------------------------------------------------------------
     check(engine, 'watches nothing until asked', (await drain(page)).changes.length === 0);
     const listId = list?.nodeId ?? '';

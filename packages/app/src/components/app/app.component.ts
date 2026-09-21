@@ -884,7 +884,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
         this.setInspecting(false);
         return;
       case 'tree-engine':
-        this.startTree(intent.engine);
+        this.switchTreeEngine(intent.engine);
         return;
       case 'tree-toggle':
         this.toggleRow(intent.nodeId, intent.open);
@@ -1062,6 +1062,32 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     void done.catch((error: unknown) => this.reportError(error));
   }
 
+  /**
+   * Show another engine's tree, open to whatever the last one had selected.
+   *
+   * Switching engines is asking the same question of a different engine, so
+   * arriving at the top of an unopened document would throw away the only thing
+   * being compared. The element is already identified in every engine: a
+   * selection is described by all three at once, and each pane answers with its
+   * own handles — so the column for the engine being switched to is holding the
+   * chain to open, and the reveal costs nothing but the twisties on the way.
+   *
+   * An engine that found no such element simply reveals nothing, which is the
+   * same finding its column was already showing.
+   *
+   * Only ever from somebody choosing an engine. A tree started again because
+   * its document was replaced must not seed a reveal from answers describing
+   * the document that went — the handles would be refused, the refusal would
+   * start the tree again, and the two would take turns.
+   */
+  private switchTreeEngine(engine: Engine): void {
+    const wanted = this.answers.find(answer => answer.engine === engine)?.element;
+    this.startTree(engine);
+    if (wanted?.nodeId && wanted.ancestors) {
+      this.revealNode(wanted.nodeId, wanted.ancestors);
+    }
+  }
+
   /** Drop the tree, for a navigation that made every handle in it meaningless. */
   private clearTree(): void {
     this.tree = null;
@@ -1071,9 +1097,17 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.#watching = '';
   }
 
+  /**
+   * Ask for a node's children, unless that question is already in the air.
+   *
+   * A reveal opens several levels at once and is retried every time any of them
+   * lands, so without this the levels still outstanding would be asked for
+   * again on each arrival — once per slice, multiplying with the depth of the
+   * thing being revealed.
+   */
   private fetchChildren(nodeId: string): void {
     const tree = this.tree;
-    if (!tree) {
+    if (!tree || [...this.#domRequests.values()].includes(nodeId)) {
       return;
     }
     const { id, done } = sendTracked({ type: 'dom-children', engine: tree.engine, nodeId });
@@ -1954,7 +1988,8 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
             .treeEngines=${[...this.#running]}
             ?searching=${this.searching}
             .matchCount=${this.matchCount}
-            @devkit-dom-engine=${(event: CustomEvent<Engine>) => this.startTree(event.detail)}
+            @devkit-dom-engine=${(event: CustomEvent<Engine>) =>
+              this.switchTreeEngine(event.detail)}
             @devkit-dom-toggle=${(event: CustomEvent<{ nodeId: string; open: boolean }>) =>
               this.toggleRow(event.detail.nodeId, event.detail.open)}
             @devkit-dom-select=${(event: CustomEvent<string>) => this.selectRow(event.detail)}
