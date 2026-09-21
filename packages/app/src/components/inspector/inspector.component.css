@@ -27,25 +27,43 @@ header {
   border-bottom: 1px solid var(--border);
 }
 
+/* Tabs rather than buttons. The drawer has two panels and these say which of
+   them you are looking at — a place you are, not a thing to press — so the
+   one you are on is marked along the header's own rule instead of being given
+   a plate of its own. */
 .tabs {
   display: flex;
   flex: 1;
+  align-self: stretch;
   gap: 2px;
 }
 
 .tab {
-  padding: 4px 10px;
+  position: relative;
+  padding: 0 8px;
   border: 0;
-  border-radius: 6px;
   background: transparent;
   color: var(--text-dim);
   font: inherit;
   cursor: pointer;
 }
 
-.tab[aria-pressed='true'] {
-  background: color-mix(in srgb, var(--text) 8%, transparent);
+.tab:hover {
   color: var(--text);
+}
+
+.tab[aria-selected='true'] {
+  color: var(--text);
+}
+
+/* Sitting a pixel low, so it covers the header's rule rather than resting on
+   top of it — the mark and the line are one edge, not two. */
+.tab[aria-selected='true']::after {
+  position: absolute;
+  inset: auto 0 -1px;
+  height: 2px;
+  background: var(--accent);
+  content: '';
 }
 
 .body {

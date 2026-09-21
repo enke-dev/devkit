@@ -145,7 +145,7 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
   override render() {
     return html`
       <header>
-        <nav class="tabs">
+        <nav class="tabs" role="tablist">
           ${(
             [
               ['elements', 'Elements'],
@@ -156,7 +156,9 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
               <button
                 type="button"
                 class="tab"
-                aria-pressed=${ariaBoolean(this.tab === tab)}
+                role="tab"
+                id=${`tab-${tab}`}
+                aria-selected=${ariaBoolean(this.tab === tab)}
                 @click=${() => this.emit('devkit-inspector-tab', tab)}
               >
                 ${label}
@@ -253,7 +255,7 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
 
     const differing = differingProperties(columns);
     return html`
-      <div class="body">
+      <div class="body" role="tabpanel" aria-labelledby="tab-elements">
         ${this.renderSubject(columns)}
         <div class="controls">
           <label>
@@ -555,7 +557,7 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
   private renderConsole() {
     const visible = this.visibleMessages;
     return html`
-      <div class="body console">
+      <div class="body console" role="tabpanel" aria-labelledby="tab-console">
         <div class="controls">
           ${this.renderFilter(
             'levels',
