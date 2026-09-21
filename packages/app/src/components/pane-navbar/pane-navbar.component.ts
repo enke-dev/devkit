@@ -62,7 +62,8 @@ export class PaneNavbarComponent extends DevkitElement.withStyles(styles) {
   override render() {
     return html`
       <span class="title">
-        ${renderEngineGlyph(this.engine)} ${ENGINE_LABELS[this.engine]}
+        ${renderEngineGlyph(this.engine)}
+        <span class="name">${ENGINE_LABELS[this.engine]}</span>
         <span class="version">${this.version}</span>
       </span>
       <span class="dims">${this.dims}</span>

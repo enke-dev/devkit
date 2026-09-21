@@ -4,8 +4,14 @@
   align-items: center;
   min-width: 0;
   padding: 0 10px;
+  overflow: hidden;
   border-bottom: 1px solid var(--border);
   font-size: 11px;
+  /* Nothing in here may wrap. The header is one line tall by construction, so
+     a second line does not make the text fit — it pushes it out of sight and
+     takes the baseline of everything beside it with it. What does not fit is
+     dropped, never folded. */
+  white-space: nowrap;
 }
 
 :host([active]) {
@@ -16,13 +22,20 @@
   opacity: 0.45;
 }
 
+/* The one part allowed to give way, because the build number inside it is the
+   least load-bearing thing in the header. */
 .title {
   display: inline-flex;
-  flex: none;
+  flex: 0 1 auto;
   gap: 3px;
   align-items: center;
+  min-width: 0;
   color: var(--text);
   font-weight: 600;
+}
+
+.name {
+  flex: none;
 }
 
 :host([active]) .title {
@@ -62,6 +75,7 @@ svg.engine {
 
 nav {
   display: flex;
+  flex: none;
   flex-flow: row nowrap;
 }
 
@@ -89,9 +103,14 @@ ph-sun {
 /* Pushed right against the status, so "fps" sits in one spot however many
    digits precede it; the number grows leftwards into free space. */
 .meter {
+  flex: none;
   margin-left: auto;
   color: var(--text-dim);
   font-variant-numeric: tabular-nums;
+}
+
+.status {
+  flex: none;
 }
 
 .status::before {

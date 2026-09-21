@@ -18,6 +18,11 @@
   --ok: #3aa675;
   --pending: #c9903a;
   --toolbar-height: 44px;
+  /* Every header below the toolbar: a pane's and the inspector's. They sit
+     side by side whenever the panes are stacked and the drawer is docked to an
+     edge, and two headers of different heights against each other reads as a
+     mistake rather than as two panels. */
+  --header-height: 28px;
 
   color-scheme: light dark;
 }
