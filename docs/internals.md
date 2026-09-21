@@ -7,19 +7,21 @@ where a number appears, it came from running the thing.
 
 ```
 ┌─────────────────────────────────────────────┐
-│ Tauri window (HTML/CSS/TS)                  │
-│  address bar · three panes                  │
+│ Tauri window (HTML/CSS/TS)          = one   │
+│  address bar · three panes          session │
 └───────────────┬─────────────────────────────┘
                 │ Tauri IPC: invoke + events
 ┌───────────────┴─────────────────────────────┐
 │ Rust backend                                │
 │  spawns and supervises the sidecar          │
+│  stamps each command with its window        │
 │  relays newline-JSON in both directions     │
 └───────────────┬─────────────────────────────┘
                 │ stdin / stdout
 ┌───────────────┴─────────────────────────────┐
 │ Node sidecar (Playwright)                   │
-│  chromium · firefox · webkit                │
+│  one session per window                     │
+│  chromium · firefox · webkit per session    │
 │  one ephemeral context + page per engine    │
 └─────────────────────────────────────────────┘
 ```
@@ -28,6 +30,32 @@ The Rust layer deliberately knows almost nothing about the protocol: it owns the
 and pipes, and forwards payloads verbatim. The message shapes live in one place,
 [`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts), with the handful of names Rust
 needs mirrored in [`src-tauri/src/protocol.rs`](../src-tauri/src/protocol.rs).
+
+### One window is one session
+
+Everything below the window is keyed by session: the panes, the viewport, the colour scheme, the
+cursor sample, the frames. A session is named by the window's own Tauri label, which the backend
+stamps onto every command as it relays it — the frontend never says which window it is, so it cannot
+say wrongly, and a window does not have to be told its own name before it can speak.
+
+Replies go back the same way. The sidecar stamps each event with its session and the backend answers
+that window alone with `emit_to`; only the four events that describe the process rather than a
+comparison — `hello`, `browsers`, `install-progress`, `log` — are broadcast. The list lives in both
+[`packages/protocol/src/index.ts`](../packages/protocol/src/index.ts) and
+[`src-tauri/src/protocol.rs`](../src-tauri/src/protocol.rs) and has to stay in step.
+
+Frames cannot carry a label: the header is a fixed sixteen bytes read on every frame. So each session
+also gets a byte-wide slot, handed out by [`src-tauri/src/sessions.rs`](../src-tauri/src/sessions.rs)
+with the session's first command and mapped back when its frames arrive. That is also why the slot is
+assigned by the backend rather than chosen by the sidecar: a number announced on stdout could arrive
+after the frames that use it, and a frame whose session is unknown has nowhere to go.
+
+Two things are deliberately *not* per session. The headed windows that `detach` opens are handed to
+the user outright — a second click adds a tab to the browser they already have, whichever window
+asked for it. And of the frontend's stored state, only the back/forward trail is per session; the
+address bar's history and the layout sizes are one person's preferences, not one comparison's.
+
+`bun run verify:sessions` drives two sessions through one sidecar and fails if anything crosses.
 
 ## Decisions worth knowing
 
