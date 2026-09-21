@@ -10,7 +10,8 @@
   ],
   "scripts": {
     "dev": "bun run build:libs && bun run bundle:sidecar && bun run prepare:sidecar && bun run tauri dev",
-    "build": "tauri build",
+    "build": "bun --env-file=.env run build:tauri",
+    "build:tauri": "tauri build",
     "build:libs": "bun run --filter @devkit/protocol build && bun run --filter @devkit/sidecar build",
     "bundle:sidecar": "bun run scripts/bundle-sidecar.ts",
     "prepare:sidecar": "bun run scripts/prepare-sidecar.ts",
