@@ -14,6 +14,20 @@
   /* Dragging across a pane is a drag in the page, not a text selection in
      the app's own UI. */
   user-select: none;
+  background: var(--bg-raised);
+}
+
+/* The checkerboard means "nothing has been rendered here yet".
+
+   Only while that is true. A frame never fills its pane to the last pixel: the
+   surface is measured and rounded, the panes agree on the smallest of those
+   measurements, and that agreement is rounded down to an even number because
+   Gecko spoils the first row of an odd-width capture. Three panes across a
+   window whose width does not divide by three land on fractional boxes as
+   well. So there is always a sliver of a pixel or two down one edge — and
+   painted behind a rendering, the checkerboard turned that sliver into a
+   stripe that read as a broken frame rather than as the rounding it is. */
+:host(:not([has-frame])) .surface {
   background: repeating-conic-gradient(
       color-mix(in srgb, var(--text) 4%, transparent) 0% 25%,
       transparent 0% 50%
