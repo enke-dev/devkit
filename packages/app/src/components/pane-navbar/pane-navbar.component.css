@@ -158,13 +158,8 @@ ph-sun {
    generous for one that is mostly glyphs and numbers, and at this width every
    one of them is a pixel something else could have used.
 
-   Queried without naming the container, which matters. The container is the
-   pane, two shadow boundaries above these rules, and WebKit will not resolve a
-   container *by name* across that — measured in all three: Chromium and Gecko
-   find `@container pane` from in here, WebKit finds nothing and silently
-   applies none of this, which in the app's own chrome is every pane. Unnamed,
-   the nearest ancestor container is found by all three. The pane keeps its
-   name for the sake of whoever reads it; nothing may declare a container
+   Queried unnamed on purpose, and it has to stay that way — see the note in
+   `docs/internals.md`. The container is the pane; nothing may declare one
    between there and here, or this would bind to that instead. */
 @container (width < 380px) {
   :host {

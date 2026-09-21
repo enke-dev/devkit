@@ -457,7 +457,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   @listenWindow('pointerout')
   protected handlePointerOut(event: PointerEvent): void {
     if (event.relatedTarget === null) {
-      this.leftTheWindow('pointerout');
+      this.leftTheWindow();
     }
   }
 
@@ -484,7 +484,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       event.clientX >= window.innerWidth - 1 ||
       event.clientY >= window.innerHeight - 1;
     if (atEdge) {
-      this.leftTheWindow('edge');
+      this.leftTheWindow();
     }
   }
 
@@ -498,24 +498,20 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   @listenWindow('mouseout')
   protected handleMouseOut(event: MouseEvent): void {
     if (event.relatedTarget === null) {
-      this.leftTheWindow('mouseout');
+      this.leftTheWindow();
     }
   }
 
   /**
-   * Take the stand-ins down, and say what noticed.
+   * Take the stand-ins down.
    *
-   * Which event reports a pointer leaving the window turns out to depend on
-   * the platform and on how it left — dragged off an edge, snatched away by
-   * another application, moved out slowly enough that the window stops
-   * tracking it. So every signal that can mean it is listened for, and in
-   * development the one that actually fired is named, because the cost of
-   * guessing this wrong is a cursor that sits in a pane the pointer left.
+   * Which event reports a pointer leaving the window depends on the platform
+   * and on how it left — dragged off an edge, snatched away by another
+   * application, moved out slowly enough that the window stops tracking it.
+   * So every signal that can mean it comes here, and the cost of one arriving
+   * that did not have to is nothing.
    */
-  private leftTheWindow(signal: string): void {
-    if (import.meta.env.DEV) {
-      void invoke('debug_log', { message: `pointer left the window: ${signal}` }).catch(() => {});
-    }
+  private leftTheWindow(): void {
     this.clearCursors();
   }
 
@@ -1374,10 +1370,8 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     // window is itself the target, which it never is. They are heard on the
     // document, and they are heard in addition to `pointerout` because no one
     // of the three can be relied on across platforms.
-    document.addEventListener('mouseleave', () => this.leftTheWindow('mouseleave'));
-    document.documentElement.addEventListener('pointerleave', () =>
-      this.leftTheWindow('pointerleave')
-    );
+    document.addEventListener('mouseleave', () => this.leftTheWindow());
+    document.documentElement.addEventListener('pointerleave', () => this.leftTheWindow());
 
     // Fetched now rather than when a cursor is first needed: an image that
     // arrives mid-movement pops in, and a pane that has none falls back to its
