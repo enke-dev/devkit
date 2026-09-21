@@ -1,0 +1,34 @@
+:host {
+  display: inline-flex;
+  position: relative;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Hung from the trigger and allowed out of it. Whatever the popover sits in
+   must not clip its own overflow, which is why the two headers that use this
+   clip their contents rather than themselves. */
+.panel {
+  position: absolute;
+  top: calc(100% + 2px);
+  z-index: 20;
+  display: grid;
+  gap: 5px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 22%);
+  white-space: nowrap;
+}
+
+:host([placement='bottom-end']) .panel {
+  right: 0;
+}
+
+:host([placement='bottom-start']) .panel {
+  left: 0;
+}

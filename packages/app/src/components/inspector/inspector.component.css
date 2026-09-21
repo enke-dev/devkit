@@ -4,7 +4,6 @@
   grid-template-rows: var(--header-height) 1fr;
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
   background: var(--bg-raised);
   font-size: 12px;
 }
@@ -505,33 +504,17 @@ input.expression:focus {
 
 /* Placement flyout ------------------------------------------------------- */
 
-/* Positioned against the drawer rather than the header, so it can hang over
-   the body — the host clips its overflow, and a panel anchored inside a 30px
-   header would be cut off at the first pixel below it. */
-.dock-menu {
-  position: absolute;
-  top: calc(var(--header-height) - 2px);
-  right: 6px;
-  z-index: 5;
-  display: grid;
-  gap: 5px;
-  padding: 7px 9px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-raised);
-  box-shadow: 0 6px 18px rgb(0 0 0 / 22%);
-}
-
-.dock-menu .title {
+/* The panel itself is the popover's; only what goes in it is the inspector's. */
+.dock-title {
   color: var(--text-dim);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 
-/* All three at once, which is the whole reason this is a panel and not a
+/* All of them at once, which is the whole reason this is a panel and not a
    button that cycles. */
-.dock-menu .choices {
+.choices {
   display: flex;
   gap: 2px;
 }

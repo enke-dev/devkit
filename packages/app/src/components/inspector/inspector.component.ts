@@ -1,4 +1,5 @@
 import '../icon-button/icon-button.component.js';
+import '../popover/popover.component.js';
 import '@phosphor-icons/webcomponents/PhBrowsers';
 import '@phosphor-icons/webcomponents/PhCrosshair';
 import '@phosphor-icons/webcomponents/PhSquareHalf';
@@ -8,7 +9,6 @@ import '@phosphor-icons/webcomponents/PhX';
 
 import type { Engine, InspectedElement, MatchedRule } from '@devkit/protocol';
 import { ENGINE_LABELS, ENGINES, INSPECTED_STYLE_GROUPS } from '@devkit/protocol';
-import { listenWindow } from '@enke.dev/lit-utils/lib/utils/event.utils.js';
 import type { TemplateResult } from 'lit';
 import { html, nothing } from 'lit';
 import { customElement, property, query, state } from 'lit/decorators.js';
@@ -31,6 +31,7 @@ import {
 } from '../../utils/inspect.utils.js';
 import type { InspectorDock } from '../../utils/layout.utils.js';
 import { INSPECTOR_DOCKS } from '../../utils/layout.utils.js';
+import type { PopoverComponent } from '../popover/popover.component.js';
 import styles from './inspector.component.css';
 
 type Tab = 'elements' | 'console';
@@ -112,8 +113,8 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
    */
   @state() private accessor onlyDifferences = false;
 
-  /** Whether the placement flyout is showing. */
-  @state() private accessor dockMenu = false;
+  /** Mirrors the placement flyout, so its trigger can show that it is open. */
+  @state() private accessor dockOpen = false;
 
   @state() private accessor floor: Floor = 'debug';
   @state() private accessor muted: Engine[] = [];
@@ -121,6 +122,9 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
 
   @query('input.expression')
   private accessor expressionField!: HTMLInputElement;
+
+  @query('devkit-popover.dock')
+  private accessor dockPopover!: PopoverComponent;
 
   private emit(name: string, detail?: unknown): void {
     this.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
@@ -164,21 +168,21 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
                you can be in without noticing is a mode that bites. -->
           <ph-crosshair weight=${this.picking ? 'bold' : 'regular'}></ph-crosshair>
         </devkit-icon-button>
-        <devkit-icon-button
-          class="dock-trigger"
+        <devkit-popover
+          class="dock"
           label="Dock side"
-          ?active=${this.dockMenu}
-          aria-haspopup="true"
-          aria-expanded=${ariaBoolean(this.dockMenu)}
-          @click=${() => {
-            this.dockMenu = !this.dockMenu;
+          @devkit-popover-toggle=${(event: CustomEvent<boolean>) => {
+            this.dockOpen = event.detail;
           }}
         >
-          <!-- Unlike the pane split toggle, this one shows where the drawer is
-               rather than where it would go: it opens a list of the places
-               rather than moving to the next of them. -->
-          ${dockGlyph(this.dock)}
-        </devkit-icon-button>
+          <devkit-icon-button slot="trigger" label="Dock side" ?active=${this.dockOpen}>
+            <!-- Unlike the pane split toggle, this one shows where the drawer
+                 is rather than where it would go: it opens a list of the
+                 places rather than moving to the next of them. -->
+            ${dockGlyph(this.dock)}
+          </devkit-icon-button>
+          ${this.renderDockChoices()}
+        </devkit-popover>
         <devkit-icon-button
           label="Close the inspector"
           @click=${() => this.emit('devkit-inspector-close')}
@@ -187,7 +191,6 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
         </devkit-icon-button>
       </header>
 
-      ${this.dockMenu ? this.renderDockMenu() : nothing}
       ${this.tab === 'elements' ? this.renderElements() : this.renderConsole()}
     `;
   }
@@ -195,69 +198,34 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
   /**
    * Every placement at once, the current one marked.
    *
-   * A cycling button asked people to guess what came next and hid two of the
-   * three choices while they did. All three fit in a row, so all three are
-   * shown — which is what the tools this borrows from settled on for the same
-   * reason.
+   * A cycling button asked people to guess what came next and hid the rest of
+   * the choices while they did. They fit in a row, so they are all shown —
+   * which is what the tools this borrows from settled on for the same reason.
    */
-  private renderDockMenu() {
+  private renderDockChoices() {
     return html`
-      <div class="dock-menu" role="menu" aria-label="Dock side">
-        <span class="title">Dock side</span>
-        <div class="choices">
-          ${INSPECTOR_DOCKS.map(
-            dock => html`
-              <devkit-icon-button
-                role="menuitemradio"
-                aria-checked=${ariaBoolean(dock === this.dock)}
-                ?active=${dock === this.dock}
-                label=${DOCK_LABELS[dock]}
-                @click=${() => {
-                  this.dockMenu = false;
-                  if (dock !== this.dock) {
-                    this.emit('devkit-inspector-dock', dock);
-                  }
-                }}
-              >
-                ${dockGlyph(dock)}
-              </devkit-icon-button>
-            `
-          )}
-        </div>
+      <span class="dock-title">Dock side</span>
+      <div class="choices">
+        ${INSPECTOR_DOCKS.map(
+          dock => html`
+            <devkit-icon-button
+              role="menuitemradio"
+              aria-checked=${ariaBoolean(dock === this.dock)}
+              ?active=${dock === this.dock}
+              label=${DOCK_LABELS[dock]}
+              @click=${() => {
+                this.dockPopover.open = false;
+                if (dock !== this.dock) {
+                  this.emit('devkit-inspector-dock', dock);
+                }
+              }}
+            >
+              ${dockGlyph(dock)}
+            </devkit-icon-button>
+          `
+        )}
       </div>
     `;
-  }
-
-  /**
-   * Dismiss the flyout on anything that is not it.
-   *
-   * On the window rather than on the host, because a click anywhere — another
-   * pane, the toolbar, the page behind a detached window — means the same
-   * thing. The trigger is excluded so its own click toggles rather than
-   * closing and reopening.
-   */
-  @listenWindow('pointerdown')
-  protected dismissDockMenu(event: PointerEvent): void {
-    if (!this.dockMenu) {
-      return;
-    }
-    const inside = event
-      .composedPath()
-      .some(
-        node =>
-          node instanceof HTMLElement &&
-          (node.classList.contains('dock-menu') || node.classList.contains('dock-trigger'))
-      );
-    if (!inside) {
-      this.dockMenu = false;
-    }
-  }
-
-  @listenWindow('keydown')
-  protected closeDockMenuOnEscape(event: KeyboardEvent): void {
-    if (this.dockMenu && event.key === 'Escape') {
-      this.dockMenu = false;
-    }
   }
 
   // -------------------------------------------------------------------------
