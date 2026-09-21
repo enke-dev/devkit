@@ -1,13 +1,15 @@
 import '../icon-button/icon-button.component.js';
 import '../popover/popover.component.js';
 import '@phosphor-icons/webcomponents/PhBrowsers';
+import '@phosphor-icons/webcomponents/PhCaretDown';
+import '@phosphor-icons/webcomponents/PhCheck';
 import '@phosphor-icons/webcomponents/PhCrosshair';
 import '@phosphor-icons/webcomponents/PhSquareHalf';
 import '@phosphor-icons/webcomponents/PhSquareHalfBottom';
 import '@phosphor-icons/webcomponents/PhTrash';
 import '@phosphor-icons/webcomponents/PhX';
 
-import type { Engine, InspectedElement, MatchedRule } from '@devkit/protocol';
+import type { ConsoleLevel, Engine, InspectedElement, MatchedRule } from '@devkit/protocol';
 import { ENGINE_LABELS, ENGINES, INSPECTED_STYLE_GROUPS } from '@devkit/protocol';
 import type { TemplateResult } from 'lit';
 import { html, nothing } from 'lit';
@@ -19,9 +21,9 @@ import { DevkitElement } from '../../utils/base.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from '../../utils/inspect.utils.js';
 import {
   agreed,
-  atLeast,
   breadcrumb,
-  CONSOLE_FLOORS,
+  CONSOLE_LEVEL_LABELS,
+  CONSOLE_LEVELS,
   describeRef,
   differingProperties,
   divergesAt,
@@ -64,8 +66,6 @@ const DOCK_GLYPHS: Record<InspectorDock, () => TemplateResult> = {
 function dockGlyph(dock: InspectorDock): TemplateResult {
   return DOCK_GLYPHS[dock]();
 }
-type Floor = (typeof CONSOLE_FLOORS)[number];
-
 /**
  * The introspection drawer: what is under the pointer, what the pages printed,
  * and a line to ask them something.
@@ -118,8 +118,11 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
   /** Mirrors the placement flyout, so its trigger can show that it is open. */
   @state() private accessor dockOpen = false;
 
-  @state() private accessor floor: Floor = 'debug';
-  @state() private accessor muted: Engine[] = [];
+  /** Which levels are shown; all of them until somebody says otherwise. */
+  @state() private accessor levels: ConsoleLevel[] = [...CONSOLE_LEVELS];
+
+  /** Which engines are shown, by the same arrangement. */
+  @state() private accessor engines: Engine[] = [...ENGINES];
   @state() private accessor search = '';
 
   @query('input.expression')
@@ -460,16 +463,85 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
     const needle = this.search.trim().toLowerCase();
     return this.messages.filter(
       entry =>
-        !this.muted.includes(entry.engine) &&
-        atLeast(entry, this.floor) &&
+        this.engines.includes(entry.engine) &&
+        this.levels.includes(levelOf(entry)) &&
         (needle === '' || textOf(entry).toLowerCase().includes(needle))
     );
   }
 
-  private toggleEngine(engine: Engine): void {
-    this.muted = this.muted.includes(engine)
-      ? this.muted.filter(muted => muted !== engine)
-      : [...this.muted, engine];
+  /** Kept in the canonical order, so the summary reads the same however it was reached. */
+  private static toggled<T>(chosen: T[], all: T[], value: T): T[] {
+    return chosen.includes(value)
+      ? chosen.filter(candidate => candidate !== value)
+      : all.filter(candidate => chosen.includes(candidate) || candidate === value);
+  }
+
+  /**
+   * One of the two filters: a summary you can read at a glance, and the whole
+   * list of choices behind it.
+   *
+   * Shaped after the developer tools this sits beside, because a console
+   * filter is a thing people already know how to use and there is nothing to
+   * be gained by it working differently here.
+   */
+  private renderFilter<T extends string>(
+    name: string,
+    summary: string,
+    all: T[],
+    labels: Record<T, string>,
+    chosen: T[],
+    choose: (next: T[]) => void
+  ) {
+    return html`
+      <devkit-popover class="filter" placement="bottom-start" label=${name}>
+        <button slot="trigger" class="filter-trigger" type="button">
+          ${summary}
+          <ph-caret-down></ph-caret-down>
+        </button>
+        <button
+          type="button"
+          class="choice all"
+          @click=${() => choose([...all])}
+          ?disabled=${chosen.length === all.length}
+        >
+          All ${name}
+        </button>
+        <span class="ruler"></span>
+        ${all.map(
+          value => html`
+            <button
+              type="button"
+              class="choice"
+              role="menuitemcheckbox"
+              aria-checked=${ariaBoolean(chosen.includes(value))}
+              @click=${() => choose(InspectorComponent.toggled(chosen, all, value))}
+            >
+              <span class="tick">
+                ${chosen.includes(value) ? html`<ph-check></ph-check>` : nothing}
+              </span>
+              ${labels[value]}
+            </button>
+          `
+        )}
+      </devkit-popover>
+    `;
+  }
+
+  /** "All levels", the one that is left, or how many there are. */
+  private static summarise<T extends string>(
+    chosen: T[],
+    all: T[],
+    labels: Record<T, string>,
+    name: string
+  ): string {
+    if (chosen.length === all.length) {
+      return `All ${name}`;
+    }
+    if (chosen.length === 0) {
+      return `No ${name}`;
+    }
+    const [only] = chosen;
+    return only !== undefined && chosen.length === 1 ? labels[only] : `${chosen.length} ${name}`;
   }
 
   /**
@@ -485,29 +557,31 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
     return html`
       <div class="body console">
         <div class="controls">
-          <select
-            aria-label="Least severe level to show"
-            .value=${this.floor}
-            @change=${(event: globalThis.Event) => {
-              this.floor = (event.target as HTMLSelectElement).value as Floor;
-            }}
-          >
-            ${CONSOLE_FLOORS.map(level => html`<option value=${level}>${level} and above</option>`)}
-          </select>
-          <div class="chips">
-            ${ENGINES.map(
-              engine => html`
-                <button
-                  type="button"
-                  class="chip"
-                  aria-pressed=${ariaBoolean(!this.muted.includes(engine))}
-                  @click=${() => this.toggleEngine(engine)}
-                >
-                  ${ENGINE_LABELS[engine]}
-                </button>
-              `
-            )}
-          </div>
+          ${this.renderFilter(
+            'levels',
+            InspectorComponent.summarise(
+              this.levels,
+              CONSOLE_LEVELS,
+              CONSOLE_LEVEL_LABELS,
+              'levels'
+            ),
+            CONSOLE_LEVELS,
+            CONSOLE_LEVEL_LABELS,
+            this.levels,
+            next => {
+              this.levels = next;
+            }
+          )}
+          ${this.renderFilter(
+            'engines',
+            InspectorComponent.summarise([...this.engines], [...ENGINES], ENGINE_LABELS, 'engines'),
+            [...ENGINES],
+            ENGINE_LABELS,
+            this.engines,
+            next => {
+              this.engines = next;
+            }
+          )}
           <input
             type="search"
             placeholder="Filter"
@@ -532,7 +606,11 @@ export class InspectorComponent extends DevkitElement.withStyles(styles) {
             entry => this.renderEntry(entry)
           )}
         </ol>
-
+        ${
+          this.messages.length > 0 && visible.length === 0
+            ? html`<p class="hint">Nothing matches the filter.</p>`
+            : nothing
+        }
         ${this.renderEvaluations()} ${this.renderExpressionField()}
       </div>
     `;

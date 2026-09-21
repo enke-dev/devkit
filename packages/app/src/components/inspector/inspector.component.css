@@ -192,7 +192,7 @@ code {
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
-  padding: 0 4px;
+  padding: 3px 4px;
   color: var(--text-dim);
 }
 
@@ -219,26 +219,85 @@ code {
   min-width: 60px;
 }
 
-.chips {
-  display: flex;
-  gap: 3px;
-}
+/* Filters ---------------------------------------------------------------- */
 
-.chip {
-  padding: 2px 8px;
+/* Reads as what it is: a summary of the filter, and a caret saying there is
+   more behind it. */
+.filter-trigger {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  padding: 3px 6px;
   border: 1px solid var(--border);
-  border-radius: 999px;
-  background: transparent;
-  color: var(--text-muted);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text);
   font: inherit;
-  font-size: 10px;
+  font-size: 11px;
+  white-space: nowrap;
   cursor: pointer;
 }
 
-.chip[aria-pressed='true'] {
-  border-color: transparent;
-  background: color-mix(in srgb, var(--text) 10%, transparent);
+.filter-trigger:hover {
+  border-color: color-mix(in srgb, var(--text) 30%, transparent);
+}
+
+.filter-trigger ph-caret-down {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* A column of choices rather than a row of chips: several filters of the same
+   shape, read the same way, and room for their names in full. */
+.filter::part(panel) {
+  gap: 1px;
+  padding: 4px;
+}
+
+.choice {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  padding: 3px 8px 3px 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
   color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.choice:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.choice:disabled {
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* The tick keeps its place whether or not it is there, so the labels line up
+   and the list does not shift as things are turned on and off. */
+.tick {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 14px;
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.choice.all {
+  padding-left: 24px;
+}
+
+.ruler {
+  height: 1px;
+  margin: 2px 0;
+  background: var(--border);
 }
 
 .count {

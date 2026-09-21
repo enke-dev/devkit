@@ -1,4 +1,5 @@
 import type {
+  ConsoleLevel,
   ElementRef,
   Engine,
   Event,
@@ -229,11 +230,22 @@ export function textOf(entry: ConsoleEntry): string {
   return entry.type === 'page-error' ? entry.message : entry.text;
 }
 
-const SEVERITY = ['debug', 'log', 'info', 'warn', 'error'] as const;
+/**
+ * The levels a console can be filtered by, least severe first.
+ *
+ * Chosen independently rather than as a threshold. A severity floor reads
+ * neatly and is the wrong tool: the common thing to want is the warnings and
+ * the errors *without* the hundreds of ordinary lines between them, and a
+ * floor cannot express that. It is also what the developer tools everyone
+ * already knows do here.
+ */
+export const CONSOLE_LEVELS: ConsoleLevel[] = ['debug', 'log', 'info', 'warn', 'error'];
 
-/** Whether an entry is at least as severe as the filter asks for. */
-export function atLeast(entry: ConsoleEntry, floor: (typeof SEVERITY)[number]): boolean {
-  return SEVERITY.indexOf(levelOf(entry)) >= SEVERITY.indexOf(floor);
-}
-
-export const CONSOLE_FLOORS = SEVERITY;
+/** What each level is called, in the words a filter should offer. */
+export const CONSOLE_LEVEL_LABELS: Record<ConsoleLevel, string> = {
+  debug: 'Verbose',
+  log: 'Logs',
+  info: 'Info',
+  warn: 'Warnings',
+  error: 'Errors',
+};
