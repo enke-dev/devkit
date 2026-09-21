@@ -4,6 +4,11 @@
   min-width: 0;
   min-height: 0;
   background: var(--bg-raised);
+
+  /* The pane is what its header has to fit inside, so it is the thing the
+     header measures itself against — not the window, which says nothing about
+     how much room three panes leave each other. */
+  container: pane / inline-size;
 }
 
 .surface {

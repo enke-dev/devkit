@@ -1,40 +1,33 @@
 /*
- * The host is the container, and everything in the header hangs off one
- * element inside it.
+ * The header decides here, once, and the rest of it reads the decision.
  *
- * A container is never styled by its own query — the rules inside
- * `@container` reach its descendants only — so the spacing has to live on
- * something below the host, or it could not narrow along with the rest.
+ * The container is the pane, one shadow boundary above this host — which every
+ * engine resolves. Two boundaries, down into this shadow root, is where WebKit
+ * stops: measured in all three, Chromium and Gecko find the container from
+ * inside here and WebKit silently does not, so a rule written against it would
+ * do nothing at all in the app's own chrome, which is WebKit on macOS.
+ *
+ * So the query is answered on `:host`, where it resolves, and what it decides
+ * travels inward as a custom property, which inherits across shadow boundaries
+ * without any of that trouble.
  */
 :host {
-  display: block;
-  border-bottom: 1px solid var(--border);
-  font-size: 11px;
-
-  /* The header measures itself, rather than the pane around it.
-   *
-   * It wants the pane's width and it has exactly that, being the full width of
-   * it — so the two are the same question. What differs is how far the answer
-   * has to travel: a container on the pane is two shadow boundaries away from
-   * these rules, and WebKit does not resolve a named container across that.
-   * Measured in all three: Chromium and Gecko find it, WebKit silently does
-   * not, so nothing hid at all in the app's own chrome, which is WebKit on
-   * macOS. Its own host is one boundary away, which every engine resolves. */
-  container: pane-header / inline-size;
-}
-
-.bar {
   display: flex;
   gap: 8px;
   align-items: center;
   min-width: 0;
-  height: 100%;
   padding: 0 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
   /* Nothing in here may wrap. The header is one line tall by construction, so
      a second line does not make the text fit — it pushes it out of sight and
      takes the baseline of everything beside it with it. What does not fit is
      dropped, never folded. */
   white-space: nowrap;
+
+  /* Shown unless the header says otherwise. */
+  --detail: inline;
+  --dot-gap: 5px;
 }
 
 :host([active]) {
@@ -58,6 +51,7 @@
 }
 
 .name {
+  display: var(--detail);
   flex: none;
 }
 
@@ -103,6 +97,7 @@ svg.engine {
 .version {
   min-width: 0;
   overflow: hidden;
+  display: var(--detail);
   color: var(--text-dim);
   font-weight: 400;
   white-space: nowrap;
@@ -159,12 +154,16 @@ ph-sun {
   flex: none;
 }
 
+.status .label {
+  display: var(--detail);
+}
+
 .status::before {
   content: '';
   display: inline-block;
   width: 6px;
   height: 6px;
-  margin-right: 5px;
+  margin-right: var(--dot-gap);
   border-radius: 50%;
   background: currentColor;
   vertical-align: 1px;
@@ -178,23 +177,13 @@ ph-sun {
    because the mark still says which engine this is and the flyout gives the
    rest back on demand.
 
-   Measured against the header itself, which is the pane's width — see the note
-   on its container above. */
-@container pane-header (width < 380px) {
-  /* The spacing goes with them. Gaps sized for a header with words in it are
-     too generous for one that is mostly glyphs and numbers, and at this width
-     every one of them is a pixel something else could have used. */
-  .bar {
+   The spacing goes with them: gaps sized for a header with words in it are too
+   generous for one that is mostly glyphs and numbers, and at this width every
+   one of them is a pixel something else could have used. */
+@container pane (width < 380px) {
+  :host {
     gap: 4px;
-  }
-
-  .status .label,
-  .name,
-  .version {
-    display: none;
-  }
-
-  .status::before {
-    margin-right: 0;
+    --detail: none;
+    --dot-gap: 0;
   }
 }

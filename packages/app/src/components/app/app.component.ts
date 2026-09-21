@@ -462,6 +462,33 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   }
 
   /**
+   * The pointer reached the very edge of the window, which is as close to
+   * leaving as anything will say.
+   *
+   * No engine ever reports a coordinate outside the window: measured in all
+   * three, creeping left from x=40 to x=-40 delivers 40, 20, 8, 2, 0 and then
+   * nothing at all. The last movement before the pointer leaves therefore
+   * lands exactly on the boundary pixel, and that — not a negative number, and
+   * not an exit event, none of which arrive reliably — is the signal.
+   *
+   * The cost is the outermost pixel of the window, where the stand-ins go even
+   * though the pointer is still technically inside. They come back the moment
+   * it moves inwards, which is cheaper than leaving them stranded in a pane
+   * nobody is pointing at.
+   */
+  @listenWindow('pointermove')
+  protected watchForTheEdge(event: PointerEvent): void {
+    const atEdge =
+      event.clientX <= 0 ||
+      event.clientY <= 0 ||
+      event.clientX >= window.innerWidth - 1 ||
+      event.clientY >= window.innerHeight - 1;
+    if (atEdge) {
+      this.leftTheWindow('edge');
+    }
+  }
+
+  /**
    * The same question asked of the mouse events rather than the pointer ones.
    *
    * Not redundant in practice: an engine can synthesise one family at a window
