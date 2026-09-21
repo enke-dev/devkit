@@ -1,9 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "inspector",
-  "description": "The detached inspector window. It holds no state and speaks to nobody but the app window, over the two event channels in `detached.utils.ts` — so it needs the event API and nothing else. No updater, no restart, no sidecar: everything it asks for is asked on its behalf by the window that owns the panes.",
+  "description": "The detached inspector windows, one per comparison — labelled `inspector:<session>`, which is how each knows whose console it is showing. One holds no state and speaks to nobody but its own app window, over the two event channels in `detached.utils.ts` — so it needs the event API and nothing else. No updater, no restart, no sidecar: everything it asks for is asked on its behalf by the window that owns the panes.",
   "windows": [
-    "inspector"
+    "inspector:*"
   ],
   "permissions": [
     "core:event:default"

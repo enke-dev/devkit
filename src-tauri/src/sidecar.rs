@@ -13,7 +13,7 @@ use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tauri_plugin_shell::ShellExt;
 
 use crate::frame_channel::FrameChannel;
-use crate::protocol::{SidecarStatus, SIDECAR_EVENT, SIDECAR_STATUS_EVENT};
+use crate::protocol::{is_global_event, SidecarStatus, SIDECAR_EVENT, SIDECAR_STATUS_EVENT};
 
 /// Basename of the sidecar declared in `tauri.conf.json` as `binaries/devkit-node`.
 ///
@@ -170,6 +170,16 @@ fn try_spawn(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// Hand one sidecar message to the window it belongs to.
+///
+/// Still a dumb relay: the payload passes through untouched and only two fields
+/// are read. `session` says which window asked, and an event without one
+/// describes the process rather than a comparison — the greeting, the installed
+/// browsers, a download, a log line — and goes to everybody.
+///
+/// A named window that has since closed is not an error worth reporting: its
+/// panes are being torn down, and what they say on the way out has nobody left
+/// to hear it.
 fn forward(app: &AppHandle, bytes: &[u8]) {
     let text = String::from_utf8_lossy(bytes);
     let trimmed = text.trim();
@@ -178,7 +188,19 @@ fn forward(app: &AppHandle, bytes: &[u8]) {
     }
     match serde_json::from_str::<serde_json::Value>(trimmed) {
         Ok(value) => {
-            let _ = app.emit(SIDECAR_EVENT, value);
+            let session = value
+                .get("session")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string);
+            let kind = value.get("type").and_then(serde_json::Value::as_str).unwrap_or_default();
+            match session {
+                Some(label) if !is_global_event(kind) => {
+                    let _ = app.emit_to(label, SIDECAR_EVENT, value);
+                }
+                _ => {
+                    let _ = app.emit(SIDECAR_EVENT, value);
+                }
+            }
         }
         Err(error) => crate::note!("[sidecar] unparsable line ({error}): {trimmed}"),
     }

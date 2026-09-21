@@ -4,18 +4,41 @@ mod notes;
 mod frame_channel;
 mod frames;
 mod protocol;
+mod sessions;
 mod sidecar;
 
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
-use tauri::{Emitter, Manager, RunEvent};
+use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 use frames::FrameStore;
+use sessions::Sessions;
 use sidecar::Sidecar;
 
 /// Relay one command to the sidecar. The reply arrives asynchronously on the
 /// `devkit://sidecar` event channel, correlated by the command's `id`.
+///
+/// The session is stamped here, from the webview that invoked the command,
+/// rather than being sent by the frontend. A window cannot then claim to be
+/// another one, cannot forget to say which it is, and does not have to be told
+/// its own name to send its first command. `slot` rides along for the frame
+/// headers, which have room for a byte and not for a label.
 #[tauri::command]
-fn sidecar_send(state: tauri::State<'_, Sidecar>, request: serde_json::Value) -> Result<(), String> {
+fn sidecar_send(
+    webview: tauri::Webview,
+    state: tauri::State<'_, Sidecar>,
+    sessions: tauri::State<'_, Sessions>,
+    request: serde_json::Value,
+) -> Result<(), String> {
+    let label = webview.label().to_string();
+    let slot = sessions.slot(&label)?;
+
+    let mut request = request;
+    let object = request
+        .as_object_mut()
+        .ok_or_else(|| "a command has to be an object".to_string())?;
+    object.insert("session".into(), serde_json::Value::from(label));
+    object.insert("slot".into(), serde_json::Value::from(slot));
+
     state.send(&request)
 }
 
@@ -94,9 +117,36 @@ fn open_privacy_settings(url: String) -> Result<(), String> {
 #[tauri::command]
 fn sidecar_restart(app: tauri::AppHandle) -> Result<(), String> {
     app.state::<Sidecar>().kill();
-    // Frames from the old process describe panes that no longer exist.
+    // Frames from the old process describe panes that no longer exist — every
+    // window's, since the process they came from is the one being replaced.
     app.state::<FrameStore>().clear();
     sidecar::spawn(&app)
+}
+
+/// Close a window's session, when the window itself has gone.
+///
+/// Sent from here rather than from the webview: a window that is being
+/// destroyed cannot be relied on to finish an asynchronous send, and a session
+/// nobody closes keeps three headless browsers rendering for nobody until the
+/// app exits.
+fn close_session(app: &tauri::AppHandle, label: &str) {
+    let Some(slot) = app.state::<Sessions>().forget(label) else {
+        // A window that never sent a command has no session to close.
+        return;
+    };
+    app.state::<FrameStore>().clear_session(label);
+
+    let request = serde_json::json!({
+        "type": "close-session",
+        // The ack goes to a window that is gone, which is why the id says who
+        // asked rather than pretending to correlate with anything.
+        "id": format!("backend:close:{label}"),
+        "session": label,
+        "slot": slot,
+    });
+    if let Err(error) = app.state::<Sidecar>().send(&request) {
+        note!("[devkit] could not close the session for {label}: {error}");
+    }
 }
 
 /// The one thing worth a menu: asking whether there is a newer DevKit.
@@ -161,6 +211,7 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .manage(Sidecar::default())
         .manage(FrameStore::default())
+        .manage(Sessions::default())
         .register_uri_scheme_protocol(protocol::FRAME_SCHEME, |ctx, request| {
             frames::respond(&ctx.app_handle().state::<FrameStore>(), &request)
         })
@@ -196,11 +247,17 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while building DevKit")
-        .run(|app, event| {
+        .run(|app, event| match event {
             // Headless browsers outlive their parent unless told otherwise, so
             // the sidecar is killed explicitly on the way out.
-            if matches!(event, RunEvent::ExitRequested { .. } | RunEvent::Exit) {
-                app.state::<Sidecar>().kill();
-            }
+            RunEvent::ExitRequested { .. } | RunEvent::Exit => app.state::<Sidecar>().kill(),
+            // One window closing is not the app closing: its panes go, and
+            // whatever other windows are showing carries on.
+            RunEvent::WindowEvent {
+                label,
+                event: WindowEvent::Destroyed,
+                ..
+            } => close_session(app, &label),
+            _ => {}
         });
 }

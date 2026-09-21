@@ -1,4 +1,4 @@
-//! Holds the newest frame per engine, and serves it to the webview.
+//! Holds the newest frame per pane, and serves it to the webview.
 //!
 //! Frames do not travel to the frontend as event payloads. A frame at device
 //! resolution is a couple of hundred kilobytes; as base64 inside JSON it has to
@@ -7,7 +7,8 @@
 //! instead, the bytes never become a JavaScript string and the webview decodes
 //! them off-thread like any other image.
 //!
-//! A few recent frames are kept per engine, keyed by sequence. Serving only the
+//! A few recent frames are kept per pane — a session's engine, since two
+//! windows have a Chromium each — keyed by sequence. Serving only the
 //! newest looks equivalent — the frontend asks for the sequence it was just told
 //! about — but it is not: an engine that pushes frames continuously can replace
 //! a frame between the event and the fetch, so the pane would show a live frame
@@ -18,17 +19,20 @@ use std::sync::Mutex;
 
 use tauri::http::{Request, Response, StatusCode};
 
-/// Recent frames retained per engine. Enough to cover the gap between an event
+/// Recent frames retained per pane. Enough to cover the gap between an event
 /// being emitted and the webview fetching the image, no more.
 const RETAINED_FRAMES: usize = 4;
 
+/// A pane, as the store names one: the session that owns it and its engine.
+type PaneKey = (String, String);
+
 #[derive(Default)]
 pub struct FrameStore {
-    engines: Mutex<HashMap<String, EngineFrames>>,
+    panes: Mutex<HashMap<PaneKey, PaneFrames>>,
 }
 
 #[derive(Default)]
-struct EngineFrames {
+struct PaneFrames {
     recent: VecDeque<Frame>,
     /// The newest settled capture, kept outside the rolling window.
     ///
@@ -52,9 +56,17 @@ impl Frame {
 }
 
 impl FrameStore {
-    pub fn store(&self, engine: String, seq: u64, mime: String, bytes: Vec<u8>, sharp: bool) {
-        if let Ok(mut engines) = self.engines.lock() {
-            let frames = engines.entry(engine).or_default();
+    pub fn store(
+        &self,
+        session: String,
+        engine: String,
+        seq: u64,
+        mime: String,
+        bytes: Vec<u8>,
+        sharp: bool,
+    ) {
+        if let Ok(mut panes) = self.panes.lock() {
+            let frames = panes.entry((session, engine)).or_default();
             if sharp {
                 frames.sharp = Some(Frame {
                     seq,
@@ -73,9 +85,9 @@ impl FrameStore {
     ///
     /// The fallback covers a frame that has already aged out; showing the
     /// current picture beats showing nothing.
-    fn get(&self, engine: &str, seq: Option<u64>) -> Option<(String, Vec<u8>)> {
-        let engines = self.engines.lock().ok()?;
-        let frames = engines.get(engine)?;
+    fn get(&self, session: &str, engine: &str, seq: Option<u64>) -> Option<(String, Vec<u8>)> {
+        let panes = self.panes.lock().ok()?;
+        let frames = panes.get(&(session.to_string(), engine.to_string()))?;
 
         if let Some(seq) = seq {
             if let Some(frame) = frames.recent.iter().find(|frame| frame.seq == seq) {
@@ -84,30 +96,41 @@ impl FrameStore {
             if let Some(sharp) = frames.sharp.as_ref().filter(|frame| frame.seq == seq) {
                 return Some(sharp.payload());
             }
-            crate::note!("[devkit] frame {engine}/{seq} aged out before it was fetched");
+            crate::note!("[devkit] frame {session}/{engine}/{seq} aged out before it was fetched");
         }
 
         frames.recent.back().map(Frame::payload)
     }
 
     pub fn clear(&self) {
-        if let Ok(mut engines) = self.engines.lock() {
-            engines.clear();
+        if let Ok(mut panes) = self.panes.lock() {
+            panes.clear();
+        }
+    }
+
+    /// Drop what one window was showing, when it closes.
+    pub fn clear_session(&self, session: &str) {
+        if let Ok(mut panes) = self.panes.lock() {
+            panes.retain(|(owner, _), _| owner != session);
         }
     }
 }
 
-/// Serve `devkit-frame://<engine>/<seq>`.
+/// Serve `devkit-frame://<session>/<engine>/<seq>`.
 ///
-/// A segment that is not a sequence number asks for whatever this engine last
+/// A segment that is not a sequence number asks for whatever this pane last
 /// rendered, which is how a webview that just loaded gets a picture: it missed
 /// the events naming the sequences, and the pane it is drawing may be settled
 /// and about to produce nothing further.
+///
+/// The session comes first because it is the part a window knows about itself:
+/// it asks for its own label and can be given nobody else's frames.
 pub fn respond(store: &FrameStore, request: &Request<Vec<u8>>) -> Response<Vec<u8>> {
     // Everything is read from the path and the host ignored: Tauri's scheme URLs
     // differ by platform (`devkit-frame://localhost/...` against
     // `http://devkit-frame.localhost/...`), and the path is the part that does not.
     let mut segments = request.uri().path().split('/').filter(|part| !part.is_empty());
+    let session = segments.next().unwrap_or_default();
     let engine = segments.next().unwrap_or_default();
     let seq = segments.next().and_then(|value| value.parse::<u64>().ok());
 
@@ -118,7 +141,7 @@ pub fn respond(store: &FrameStore, request: &Request<Vec<u8>>) -> Response<Vec<u
             .expect("static response builds")
     };
 
-    match store.get(engine, seq) {
+    match store.get(session, engine, seq) {
         Some((mime, bytes)) => Response::builder()
             .status(StatusCode::OK)
             .header("Content-Type", mime)

@@ -1,9 +1,10 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Baseline permissions for the DevKit window. The sidecar is spawned from Rust, so no shell permissions are exposed to the frontend; the updater and a restart are, because installing a new version is asked for from the UI, and the three window permissions are what lets the inspector be opened in a window of its own.",
+  "description": "Baseline permissions for a DevKit window. The sidecar is spawned from Rust, so no shell permissions are exposed to the frontend; the updater and a restart are, because installing a new version is asked for from the UI, and the three window permissions are what lets the inspector be opened in a window of its own. One entry per shape of app-window label: `main` is the one the config opens, `s1`, `s2`, … are the comparisons opened after it.",
   "windows": [
-    "main"
+    "main",
+    "s*"
   ],
   "permissions": [
     "core:default",

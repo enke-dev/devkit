@@ -19,6 +19,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::frames::FrameStore;
 use crate::protocol::SIDECAR_EVENT;
+use crate::sessions::Sessions;
 
 /// Engines, in the order the protocol's `ENGINES` declares them.
 const ENGINES: [&str; 3] = ["chromium", "firefox", "webkit"];
@@ -108,15 +109,33 @@ fn serve(app: AppHandle, mut stream: TcpStream, expected: String) {
         };
         let sharp = header[13] == 1;
         let mime = if header[14] == 1 { "image/png" } else { "image/jpeg" };
+        // The window this pane belongs to. A frame from a session that has just
+        // closed has nowhere to go, which is ordinary: the sidecar was still
+        // capturing when the window went.
+        let Some(session) = app.state::<Sessions>().label(header[15]) else {
+            continue;
+        };
 
-        store.store((*engine).to_string(), seq, mime.to_string(), payload, sharp);
+        store.store(
+            session.clone(),
+            (*engine).to_string(),
+            seq,
+            mime.to_string(),
+            payload,
+            sharp,
+        );
 
         // The frontend is told a frame exists; it fetches the bytes over the
-        // frame scheme, exactly as before.
-        let _ = app.emit(
+        // frame scheme, exactly as before. To that window alone: a frame is the
+        // one thing here that arrives sixty times a second, and three windows
+        // each dropping two thirds of them would be most of what this channel
+        // ever did.
+        let _ = app.emit_to(
+            &session,
             SIDECAR_EVENT,
             serde_json::json!({
                 "type": "frame",
+                "session": session,
                 "engine": engine,
                 "seq": seq,
                 "mime": mime,

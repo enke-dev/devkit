@@ -20,6 +20,16 @@ pub const SIDECAR_EVENT: &str = "devkit://sidecar";
 /// cannot report (it cannot announce its own crash).
 pub const SIDECAR_STATUS_EVENT: &str = "devkit://sidecar-status";
 
+/// The events that describe the process rather than one window's panes.
+///
+/// Mirrors `GLOBAL_EVENTS` in the protocol. These are the only ones every
+/// window hears; anything else is answered to the session that asked for it.
+pub const GLOBAL_EVENTS: [&str; 4] = ["hello", "browsers", "install-progress", "log"];
+
+pub fn is_global_event(kind: &str) -> bool {
+    GLOBAL_EVENTS.contains(&kind)
+}
+
 #[derive(Serialize, Clone)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum SidecarStatus {
