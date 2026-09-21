@@ -26,6 +26,6 @@
     "format:eslint": "bun --bun eslint --config eslint.config.ts --fix"
   },
   "devDependencies": {
-    "typescript": "5.9.3"
+    "typescript": "6.0.3"
   }
 }

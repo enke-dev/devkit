@@ -18,19 +18,19 @@
     "format:eslint": "bun --bun eslint --config eslint.config.ts --fix"
   },
   "dependencies": {
-    "@enke.dev/lit-utils": "0.6.0",
+    "@enke.dev/lit-utils": "0.6.1",
     "@fortawesome/free-brands-svg-icons": "7.3.1",
     "@phosphor-icons/webcomponents": "2.1.5",
     "@tauri-apps/api": "2.11.1",
     "@tauri-apps/plugin-process": "2.3.1",
-    "@tauri-apps/plugin-updater": "2.11.0",
+    "@tauri-apps/plugin-updater": "2.12.0",
     "lit": "3.3.3"
   },
   "devDependencies": {
     "@devkit/protocol": "workspace:*",
-    "@types/node": "24.13.4",
+    "@types/node": "24.13.6",
     "playwright": "1.63.0",
-    "typescript": "5.9.3",
+    "typescript": "6.0.3",
     "vite": "8.3.0",
     "vite-plugin-lit-css": "3.1.0"
   }

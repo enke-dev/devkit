@@ -34,16 +34,16 @@
     "verify:reveal": "bun run --filter @devkit/app verify:reveal"
   },
   "devDependencies": {
-    "@awmottaz/prettier-plugin-void-html": "2.2.1",
-    "@enke.dev/lint": "0.13.9",
+    "@awmottaz/prettier-plugin-void-html": "2.3.0",
+    "@enke.dev/lint": "0.13.14",
     "@schemastore/package": "1.0.5",
-    "@tauri-apps/cli": "2.11.4",
-    "@types/node": "24.13.4",
-    "eslint": "10.8.1",
+    "@tauri-apps/cli": "2.11.5",
+    "@types/node": "24.13.6",
+    "eslint": "10.10.0",
     "jiti": "2.7.0",
-    "prettier": "3.9.6",
+    "prettier": "3.9.8",
     "shx": "0.4.0",
-    "typescript": "5.9.3",
-    "typescript-eslint": "8.67.0"
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.1"
   }
 }
