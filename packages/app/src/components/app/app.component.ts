@@ -73,7 +73,7 @@ import styles from './app.component.css';
 import {
   countReceivedFrame,
   fromTextField,
-  lastVisited,
+  resumeUrl,
   sameViewport,
   sharedViewport,
   startFrameDiagnostics,
@@ -246,7 +246,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
    * Seeded before the first render rather than in `firstUpdated`: setting state
    * from there schedules a second update for something that was known all along.
    */
-  @state() private accessor url = lastVisited();
+  @state() private accessor url = resumeUrl();
 
   @queryAll('devkit-pane')
   private accessor paneElements!: NodeListOf<PaneComponent>;
@@ -270,6 +270,8 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
   /** The pointer's last position in a pane, so the stand-ins can be redrawn. */
   #pointer: { x: number; y: number } | null = null;
   #started = false;
+  /** The engines that have their binaries, so a navigation can start them. */
+  #available: Engine[] = [];
   #running = new Set<Engine>();
   #relaunching = new Set<Engine>();
   #lastViewport: Viewport | null = null;
@@ -426,6 +428,12 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       return;
     }
     this.url = url;
+    // The first navigation of a comparison that opened empty is also what
+    // launches its engines; `startPanes` navigates to `this.url` once they are
+    // up, so the command below finds nobody and the one after it finds three.
+    if (!this.#started && this.#available.length > 0) {
+      void this.startPanes(this.#available);
+    }
     // Whatever was being inspected belongs to the page being left.
     this.clearInspection();
     // Recorded on the way out as well as when a pane reports arriving: a URL
@@ -1667,6 +1675,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     this.installed = installed;
     const available = ENGINES.filter(engine => installed[engine]);
     this.setupVisible = available.length === 0;
+    this.#available = available;
 
     ENGINES.filter(engine => !installed[engine]).forEach(engine => {
       const pane = this.pane(engine);
@@ -1674,9 +1683,23 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
       pane?.setStatus('missing');
     });
 
-    if (available.length > 0) {
-      void this.startPanes(available);
+    if (available.length === 0) {
+      return;
     }
+
+    // A comparison with nowhere to be does not launch three browsers to show
+    // three blank pages. The panes stay checkered — which is what that pattern
+    // has always meant, "nothing has been rendered here" — and the engines come
+    // up with the first navigation, which is the moment there is a reason for
+    // them. That is also the whole of a new tab: no page, no engines, and the
+    // address bar waiting.
+    if (this.url === '') {
+      // After the render that puts it there: this can arrive before the first
+      // one, and an address bar that does not exist yet cannot take focus.
+      void this.updateComplete.then(() => this.navbar.focusAddress());
+      return;
+    }
+    void this.startPanes(available);
   }
 
   /**
@@ -1720,7 +1743,12 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
           .map(pane => this.setColorScheme(pane.engine, pane.colorScheme))
       );
       this.problem = '';
-      this.navigate(lastVisited());
+      // Nowhere to go is a state, not a missing value: an empty comparison has
+      // just launched its engines because somebody typed an address, and that
+      // address is already here.
+      if (this.url !== '') {
+        this.navigate(this.url);
+      }
       // A drawer that was open before its engines were has nothing to show
       // until one of them is up.
       this.ensureTree();

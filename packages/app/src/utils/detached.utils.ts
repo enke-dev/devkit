@@ -1,6 +1,7 @@
 import type { Engine, SessionId } from '@devkit/protocol';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 
 import type { DomTreeWire } from './dom.utils.js';
 import type { ConsoleEntry, Evaluation, InspectAnswer } from './inspect.utils.js';
@@ -215,6 +216,11 @@ export async function closeInspectorWindow(): Promise<void> {
   closingOnPurpose = true;
   try {
     await existing.close();
+    // Whoever re-attached was looking at the inspector, and what they asked for
+    // is to see it in the window it belongs to — which may be a tab that is not
+    // even on screen. Focusing a background tab is how macOS selects it, so the
+    // drawer they just asked for is the thing they end up looking at.
+    await getCurrentWindow().setFocus();
   } catch {
     // Nothing was closed, so nothing is coming: the flag must not be left
     // standing to swallow the next close, which would be a real one.

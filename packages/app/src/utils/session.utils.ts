@@ -18,13 +18,29 @@
  * go".
  */
 
-import { sessionKey } from './session-id.utils.js';
+import { sessionId, sessionKey } from './session-id.utils.js';
 
 /**
  * Per session: two windows are two comparisons, and a shared trail would send
  * one of them back to where the other had been.
  */
 const KEY = sessionKey('devkit.session');
+
+/**
+ * Which comparison's trail outlives its window.
+ *
+ * Only the first one's. `main` is the window the app opens by itself, always
+ * under that name, so a trail found under it is the same window's from last
+ * time — quitting and relaunching puts it back where it was, which is what
+ * this was written for.
+ *
+ * Every other window is a tab somebody opened, and their labels are reused:
+ * close the second window and the next one to open is `s1` again. A stored
+ * trail would then be inherited by a window that has nothing to do with the one
+ * that wrote it, which is how a brand-new tab came to open on a page a tab
+ * closed an hour ago had been reading. In memory only, so a new tab is new.
+ */
+const PERSISTED = sessionId() === 'main';
 
 /** Long enough to walk back through an afternoon, short enough to write often. */
 const LIMIT = 200;
@@ -35,6 +51,9 @@ interface Trail {
 }
 
 function read(): Trail {
+  if (!PERSISTED) {
+    return { entries: [], index: -1 };
+  }
   try {
     const raw = localStorage.getItem(KEY);
     const parsed: unknown = raw ? JSON.parse(raw) : null;
@@ -57,7 +76,27 @@ function read(): Trail {
 
 const trail = read();
 
+/**
+ * Clear what versions that did persist every window's trail left behind.
+ *
+ * Swept by the one window that is always there, and only its own kind of key:
+ * anything under a reused label is a trail whose window is long gone, and the
+ * next window to take that name would otherwise inherit it once.
+ */
+if (PERSISTED) {
+  try {
+    Object.keys(localStorage)
+      .filter(key => /^devkit\.session\.s\d+$/.test(key))
+      .forEach(key => localStorage.removeItem(key));
+  } catch {
+    // Debris in a store nobody can read is debris nobody will read.
+  }
+}
+
 function write(): void {
+  if (!PERSISTED) {
+    return;
+  }
   try {
     localStorage.setItem(KEY, JSON.stringify(trail));
   } catch {

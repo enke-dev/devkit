@@ -137,6 +137,13 @@ fn close_session(app: &tauri::AppHandle, label: &str) {
     };
     app.state::<FrameStore>().clear_session(label);
 
+    // A detached inspector is a view of panes that no longer exist. Closed from
+    // here rather than by the window it belongs to, which is in no position to
+    // do anything: it is being destroyed, which is what brought us here.
+    if let Some(inspector) = app.get_webview_window(&format!("inspector:{label}")) {
+        let _ = inspector.close();
+    }
+
     let request = serde_json::json!({
         "type": "close-session",
         // The ack goes to a window that is gone, which is why the id says who

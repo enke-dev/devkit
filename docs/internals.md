@@ -74,6 +74,12 @@ opened from. The tab bar has no `+`; see
 Native tabbing is off for transparent or undecorated windows, which is a constraint on any future
 custom title bar rather than a decision taken here.
 
+A new comparison opens on **no page**: panes checkered, engines not launched, the address bar
+waiting. The engines come up with the first navigation, so a tab nobody navigates costs nothing —
+three browsers apiece is worth having a reason for. Only the first window's trail is stored, because
+window labels are reused: a trail left under `s1` would be inherited by whichever tab took that name
+next, which is how a new tab came to open on a page an hour-old tab had been reading.
+
 ## Decisions worth knowing
 
 **All three engines go through Playwright, including WebKit.** The app's own chrome is a WebView —

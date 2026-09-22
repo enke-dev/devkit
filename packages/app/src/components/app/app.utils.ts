@@ -2,11 +2,8 @@ import type { Engine, Event, Viewport } from '@devkit/protocol';
 import { invoke } from '@tauri-apps/api/core';
 
 import { awaitingAck, takeHandoverTimings } from '../../utils/bridge.utils.js';
-import * as history from '../../utils/history.utils.js';
 import * as session from '../../utils/session.utils.js';
 import type { PaneComponent } from '../pane/pane.component.js';
-
-const HOME_URL = 'https://github.com/enke-dev/devkit';
 
 /**
  * Round down to an even number of pixels.
@@ -44,11 +41,18 @@ export function sameViewport(a: Viewport | null, b: Viewport): boolean {
 }
 
 /**
- * Where to open on a cold start: where the trail stands, so a restart resumes
- * with its back arrow still pointing somewhere.
+ * Where this comparison was, if it has been anywhere.
+ *
+ * Its own trail and nothing else. A window that has never navigated opens on no
+ * page at all rather than on somebody's last one: a new tab is a question not
+ * yet asked, and answering it with whatever another window happened to be
+ * looking at means three engines fetching a page nobody chose.
+ *
+ * The first window's trail survives a restart, so quitting and reopening still
+ * resumes where it stood — which is the case this used to be written for.
  */
-export function lastVisited(): string {
-  return session.current() ?? history.mostRecent()?.url ?? HOME_URL;
+export function resumeUrl(): string {
+  return session.current() ?? '';
 }
 
 /** Accept bare hosts and search-ish input the way a browser address bar does. */
