@@ -74,9 +74,20 @@ brings them back as it always has — verified by killing a shared Chromium unde
 blanked both Chromium panes and relaunched them as one process again. They now fall together where
 they used to fall alone.
 
+### A window nobody can see stops drawing
+
+A comparison in a background tab suspends: its capture stops, its pages carry on. The app window
+reports `document.visibilityState` rather than its focus — a window that lost focus may still be in
+full view beside the one that took it, and a pane that stops updating while it is being watched is
+worse than one that costs something. `ensureCapturing` refuses a suspended pane, or the heartbeat
+would start it again within three seconds, and coming back asks for a frame outright because a
+settled page produces none by itself.
+
 `bun run verify:sessions` drives two sessions through one sidecar and fails if anything crosses —
 and, since the pool, also if two sessions at one scale open two browsers, or two sessions at
-different scales share one.
+different scales share one. It suspends one of them against a page that animates for ever, since
+suspending a settled pane looks identical to not suspending it: measured at 0 frames while hidden,
+150 from the session beside it, 147 once it came back.
 
 ### A comparison is a window, and on macOS a tab
 

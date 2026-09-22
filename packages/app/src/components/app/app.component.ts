@@ -2042,12 +2042,41 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     }
   }
 
+  /**
+   * Tell the sidecar whether anybody can see this comparison.
+   *
+   * `document.visibilityState` rather than the window's focus: a window that
+   * has lost focus may still be in plain sight beside the one that took it,
+   * and suspending it then would be a pane that stops updating while it is
+   * being looked at. Hidden is the webview's own word for occluded — behind
+   * another tab, minimised — which is exactly the case worth stopping for.
+   *
+   * Nothing to say before the engines are up: a comparison with no panes has
+   * no capture to stop, and the sidecar would be asked about a session that
+   * does not exist yet.
+   */
+  private reportVisibility(): void {
+    if (!this.#started) {
+      return;
+    }
+    void send({
+      type: 'suspend-session',
+      suspended: document.visibilityState === 'hidden',
+    }).catch((error: unknown) => this.reportError(error));
+  }
+
   // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
 
   override firstUpdated(): void {
     this.attachPanes();
+
+    // Nobody is looking: the panes stop being drawn while this window is
+    // hidden — another tab is in front of it, or it is minimised — and start
+    // again when it comes back. The pages keep running throughout; what stops
+    // is the stream of pictures, which is most of what a pane costs.
+    document.addEventListener('visibilitychange', () => this.reportVisibility());
 
     // Not on `window`, which never hears either of these: `mouseleave` and
     // `pointerleave` do not bubble, so a listener there is only called if the

@@ -220,9 +220,22 @@ Arrived with the empty new tab rather than here: a comparison with no page launc
 first navigation is what brings its engines up. A tab nobody navigates costs nothing, which is what
 this item was for.
 
-### Suspend what nobody can see
+### Suspend what nobody can see — **done**
 
-`suspend-session` pausing the screencast of a window in a background tab — the command is already
-declared and currently answers with a log line. A background tab is occluded, which macOS will say,
-and a paused capture costs nothing. The pages keep running: what is worthless is the pictures, not
-the state.
+`suspend-session` stops the screencast of a window in a background tab and starts it again when the
+tab comes back. The pages keep running throughout — still loading, still logging, still where they
+were — because what is worthless while a window is hidden is the pictures, not the state.
+
+The signal is `document.visibilityState`, not the window's focus: a window that has lost focus may
+still be in plain sight beside the one that took it, and suspending that would be a pane that stops
+updating while somebody watches it. Hidden is the webview's own word for occluded — behind another
+tab, minimised — which is exactly the case worth stopping for, and it was confirmed to fire on a tab
+switch before anything was built on it.
+
+`ensureCapturing` refuses a suspended pane, or the heartbeat would helpfully start the capture again
+three seconds later. Coming back asks for a frame outright rather than waiting for one, since a
+settled page produces none and the pane would otherwise sit on a picture from before it was hidden.
+
+`verify:sessions` covers it against a page that animates for ever, because suspending a settled pane
+looks the same as not suspending it: 0 frames while hidden, 150 from the session beside it, 147 once
+it was back.

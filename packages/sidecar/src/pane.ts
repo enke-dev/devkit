@@ -305,6 +305,16 @@ export class Pane {
   #launched = false;
   /** Frames ignored as the settled pane's own doing, since it last really changed. */
   #explainedFrames = 0;
+  /**
+   * Whether anybody can see this pane.
+   *
+   * A window in a background tab is not a window that has stopped mattering —
+   * its pages keep running, its console keeps filling, its DOM keeps being
+   * watched — but nobody is looking at its pictures, and the pictures are the
+   * expensive part. Set while it is hidden, and read by `ensureCapturing` so
+   * that the heartbeat does not helpfully start the capture again.
+   */
+  #suspended = false;
 
   constructor(
     session: SessionId,
@@ -1144,7 +1154,7 @@ export class Pane {
    * exactly like a page where nothing is happening.
    */
   async ensureCapturing(): Promise<void> {
-    if (!this.alive) {
+    if (!this.alive || this.#suspended) {
       return;
     }
 
@@ -1283,6 +1293,38 @@ export class Pane {
       this.#send(buffer, jpegSize(buffer), false);
     }
     this.#scheduleSharpCapture(motion);
+  }
+
+  /**
+   * Stop drawing for a window nobody can see.
+   *
+   * Only the capture stops. The page is left running, so a background tab is
+   * still loading, still logging and still where it was when it comes back —
+   * what is worthless while it is hidden is the stream of pictures, which is
+   * most of what a pane costs.
+   */
+  async suspend(): Promise<void> {
+    if (this.#suspended) {
+      return;
+    }
+    this.#suspended = true;
+    await this.#stopCapture();
+  }
+
+  /**
+   * Draw again, and say what is there now.
+   *
+   * `ensureCapturing` restarts the screencast and asks for a frame outright: a
+   * settled page produces none on its own, so a pane coming back would
+   * otherwise sit on whatever it was showing when it was hidden — which may be
+   * a page that has since navigated itself.
+   */
+  async resume(): Promise<void> {
+    if (!this.#suspended) {
+      return;
+    }
+    this.#suspended = false;
+    await this.ensureCapturing();
   }
 
   async #stopCapture(): Promise<void> {

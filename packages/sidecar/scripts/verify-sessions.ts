@@ -17,6 +17,8 @@
  * - each session's page is the one it navigated to, not the other's
  * - two sessions at the same device scale share one browser process, and two at
  *   different scales do not
+ * - a suspended session stops producing frames and its neighbour does not, and
+ *   it produces them again when it is brought back
  *
  * The last is the other half of the same idea and fails the other way round: a
  * pool that never shares is only wasteful, while a pool that shares what it must
@@ -76,6 +78,21 @@ function browserCount(pid: number): number {
 function page(title: string): string {
   return `data:text/html,${encodeURIComponent(`<title>${title}</title><h1>${title}</h1>`)}`;
 }
+
+/**
+ * A page that repaints for ever, so silence means something.
+ *
+ * Suspending a settled pane is indistinguishable from not suspending it: both
+ * produce nothing. The only way to see a capture stop is to stop one that would
+ * otherwise still be going.
+ */
+const MOVING_PAGE =
+  'data:text/html,' +
+  encodeURIComponent(
+    '<style>body{margin:0;background:#222}div{width:60px;height:60px;background:#3b6ef5;' +
+      'animation:m 1s linear infinite}@keyframes m{from{transform:translateX(0)}' +
+      'to{transform:translateX(300px)}}</style><div></div>'
+  );
 
 interface Frame {
   slot: number;
@@ -267,6 +284,51 @@ SESSIONS.forEach(session => {
       `${navigations.length} navigation(s)`
   );
 });
+
+// ---------------------------------------------------------------------------
+// Suspending one comparison leaves the other alone
+// ---------------------------------------------------------------------------
+
+console.log('Setting both sessions animating…');
+SESSIONS.forEach(session => send(session, { type: 'navigate', url: MOVING_PAGE }));
+await wait(LOAD_MS);
+
+const [hidden, watched] = SESSIONS;
+if (hidden === undefined || watched === undefined) {
+  throw new Error('this test needs two sessions');
+}
+
+send(hidden, { type: 'suspend-session', suspended: true });
+// Long enough for frames already in flight to land, so what is counted next is
+// what the pane produced *after* it was told to stop.
+await wait(1500);
+
+const beforeQuiet = frames.length;
+await wait(2500);
+const quiet = frames.slice(beforeQuiet);
+
+if (quiet.some(frame => frame.slot === hidden.slot)) {
+  failures.push(
+    `the suspended session produced ${quiet.filter(f => f.slot === hidden.slot).length} frame(s) while nobody was looking at it`
+  );
+}
+if (!quiet.some(frame => frame.slot === watched.slot)) {
+  failures.push('the session nobody suspended stopped producing frames as well');
+}
+
+send(hidden, { type: 'suspend-session', suspended: false });
+const beforeResume = frames.length;
+await wait(2500);
+const resumed = frames.slice(beforeResume).filter(frame => frame.slot === hidden.slot);
+if (resumed.length === 0) {
+  failures.push('a session brought back produced no frames at all');
+}
+
+console.log(
+  `  suspend  ${quiet.filter(f => f.slot === hidden.slot).length} frames while hidden · ` +
+    `${quiet.filter(f => f.slot === watched.slot).length} from its neighbour · ` +
+    `${resumed.length} once back`
+);
 
 SESSIONS.forEach(session => send(session, { type: 'close-session' }));
 await wait(500);

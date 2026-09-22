@@ -445,9 +445,14 @@ async function handle(session: Session, request: Request): Promise<void> {
       return;
 
     case 'suspend-session':
-      // Declared in the protocol so the shape is settled; a window that asks
-      // for it today is answered without being lied to about what happened.
-      log('debug', `suspend-session is not implemented yet (${String(request.suspended)})`);
+      // Every pane of the session, because a window is hidden as a whole: its
+      // tab is not the front one, or it is minimised, and no part of it is on
+      // screen more than any other.
+      await Promise.all(
+        [...session.panes.values()].map(pane =>
+          request.suspended ? pane.suspend() : pane.resume()
+        )
+      );
       return;
 
     case 'shutdown':
