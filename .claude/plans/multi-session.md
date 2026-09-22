@@ -178,7 +178,7 @@ last window goes.
 ## Step 3 — paying for it
 
 Three engines per session is three browsers per tab, and four tabs is twelve. Three things keep that
-honest.
+honest — one of which is already in, having fallen out of step 2.
 
 ### Share browsers between sessions, one context each
 
@@ -209,9 +209,11 @@ Deliberately after step 2 rather than before it. Until a second window can exist
 share, and a pool with one member in it is untestable — `verify:sessions` would pass against a pool
 that silently never shares anything.
 
-### Start engines lazily
+### Start engines lazily — **done, out of order**
 
-Per session rather than on open: a window opened to look at one engine should not pay for three.
+Arrived with the empty new tab rather than here: a comparison with no page launches nothing, and the
+first navigation is what brings its engines up. A tab nobody navigates costs nothing, which is what
+this item was for.
 
 ### Suspend what nobody can see
 
