@@ -64,6 +64,12 @@ one tab group, so they arrive as real system tabs — the overview, ⌘⇧[ and 
 a window of its own, Merge All Windows. Elsewhere they are windows, because no other platform has an
 equivalent worth imitating.
 
+The Window menu is named as macOS's own, which fills it with Minimize All, Zoom All, Fill, Center
+and the list of open windows. Merge All Windows and Move Tab to New Window are not among them —
+AppKit volunteers those only to document-based apps — so they are stated in the menu and handed
+straight back to AppKit, which is the only thing that knows which windows may be merged. Both
+directions, because a Merge All Windows with no way back is a one-way door.
+
 Tauri stops at the identifier, which is not enough on its own: a window whose tabbing mode is left at
 `automatic` defers to "Prefer tabs when opening documents", and that means full screen only out of
 the box — so asking for a tab would have opened a window on most machines.

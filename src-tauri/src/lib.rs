@@ -178,6 +178,11 @@ fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
         .accelerator("Ctrl+N")
         .build(app)?;
 
+    // Kept out of the block it is built in, because AppKit has to be told which
+    // submenu is *the* Window menu once the menu is installed.
+    #[cfg(target_os = "macos")]
+    let windows_menu;
+
     #[cfg(target_os = "macos")]
     let menu = {
         let application = SubmenuBuilder::new(app, "DevKit")
@@ -210,15 +215,25 @@ fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             .paste()
             .select_all()
             .build()?;
-        // Minimize and Zoom belong to macOS's own Window menu, which is also
-        // where the tab commands appear once windows are tabbed — AppKit adds
-        // Show All Tabs and Merge All Windows to it by itself.
+        // Naming this submenu as the Window menu (below) gets AppKit's own
+        // items — Minimize All, Zoom All, Fill, Center, the list of open
+        // windows — but not the tab commands, which it only volunteers to
+        // document-based apps. They are stated here instead and handed
+        // straight back to AppKit, which is the only thing that knows which
+        // windows may be merged.
+        let merge = MenuItemBuilder::with_id("merge-all-windows", "Merge All Windows").build(app)?;
+        let untab = MenuItemBuilder::with_id("move-tab-to-new-window", "Move Tab to New Window")
+            .build(app)?;
         let window = SubmenuBuilder::new(app, "Window")
             .minimize()
             .maximize()
             .separator()
+            .item(&merge)
+            .item(&untab)
+            .separator()
             .close_window()
             .build()?;
+        windows_menu = window.clone();
         MenuBuilder::new(app)
             .items(&[&application, &file, &edit, &window])
             .build()?
@@ -236,6 +251,14 @@ fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
     };
 
     app.set_menu(menu)?;
+
+    // After the menu is installed, not before: naming a submenu that is not yet
+    // in the menu bar leaves AppKit with a Window menu nobody can see.
+    #[cfg(target_os = "macos")]
+    if let Err(error) = windows_menu.set_as_windows_menu_for_nsapp() {
+        note!("[devkit] no window menu: {error}");
+    }
+
     app.on_menu_event(|app, event| {
         if event.id() == "check-for-updates" {
             // The frontend owns the updater; this only says that somebody asked.
@@ -245,6 +268,14 @@ fn install_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
             if let Err(error) = windows::open(app) {
                 note!("[devkit] could not open another comparison: {error}");
             }
+        }
+        #[cfg(target_os = "macos")]
+        if event.id() == "merge-all-windows" {
+            windows::merge_all(app);
+        }
+        #[cfg(target_os = "macos")]
+        if event.id() == "move-tab-to-new-window" {
+            windows::move_to_new_window(app);
         }
     });
     Ok(())

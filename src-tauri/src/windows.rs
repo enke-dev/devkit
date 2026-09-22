@@ -70,6 +70,30 @@ fn next_label(app: &AppHandle) -> String {
         .unwrap_or_else(|| unreachable!("the numbers do not run out"))
 }
 
+/// Gather every comparison into one tabbed window.
+///
+/// The counterpart to dragging a tab out, and the way back from a window that
+/// was opened before tabbing was asked for — or on a machine where somebody has
+/// told macOS never to prefer tabs. AppKit does the work: it knows which
+/// windows share a tabbing identifier and may be merged, and it is the one
+/// thing here that would be wrong to reimplement.
+#[cfg(target_os = "macos")]
+pub fn merge_all(app: &AppHandle) {
+    let Some(window) = host(app) else { return };
+    macos::merge_all(app, window.label());
+}
+
+/// Take the current tab out into a window of its own.
+///
+/// The inverse, and here because the drag that does it is not discoverable and
+/// is awkward on a trackpad. Both directions belong in the menu or neither
+/// does: a Merge All Windows with no way back is a one-way door.
+#[cfg(target_os = "macos")]
+pub fn move_to_new_window(app: &AppHandle) {
+    let Some(window) = host(app) else { return };
+    macos::move_to_new_window(app, window.label());
+}
+
 /// Make the window the app already has one that prefers tabs.
 ///
 /// The configured first window is built by Tauri before anything here runs, so
@@ -158,6 +182,16 @@ mod macos {
     /// Give a window the tabbing behaviour without adding it to a group.
     pub fn prepare(app: &AppHandle, label: &str) {
         on_window(app, label, |_, _| {});
+    }
+
+    /// Ask AppKit to merge every mergeable window into this one.
+    pub fn merge_all(app: &AppHandle, label: &str) {
+        on_window(app, label, |_, window| window.mergeAllWindows(None));
+    }
+
+    /// Ask AppKit to put this tab in a window of its own.
+    pub fn move_to_new_window(app: &AppHandle, label: &str) {
+        on_window(app, label, |_, window| window.moveTabToNewWindow(None));
     }
 
     /// Run something with a window's `NSWindow`, on the thread AppKit insists on.
