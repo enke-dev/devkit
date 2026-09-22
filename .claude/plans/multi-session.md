@@ -180,7 +180,7 @@ last window goes.
 Three engines per session is three browsers per tab, and four tabs is twelve. Three things keep that
 honest — one of which is already in, having fallen out of step 2.
 
-### Share browsers between sessions, one context each
+### Share browsers between sessions, one context each — **done**
 
 Today every pane launches its own browser ([`pane.ts`](../../packages/sidecar/src/pane.ts),
 `start`), so N sessions are 3N processes. Playwright hosts many `BrowserContext`s per `Browser`, and
@@ -207,7 +207,12 @@ first use.
 
 Deliberately after step 2 rather than before it. Until a second window can exist there is nothing to
 share, and a pool with one member in it is untestable — `verify:sessions` would pass against a pool
-that silently never shares anything.
+that silently never shares anything. It now counts the sidecar's own child processes and fails both
+ways: two sessions at one scale that open two browsers, and two at different scales that open one.
+
+Measured in the app: two tabs, six panes, three browser processes where there were six. Killing the
+shared Chromium blanked both windows' Chromium panes, as expected, and the relaunch brought them
+back as one process.
 
 ### Start engines lazily — **done, out of order**
 

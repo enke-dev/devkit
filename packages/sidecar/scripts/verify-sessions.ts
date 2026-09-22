@@ -9,19 +9,27 @@
  * the failure nobody would report as a bug: two windows that look plausible and
  * show the wrong thing.
  *
- * So both sessions are driven at once, deliberately out of step, and three
+ * So both sessions are driven at once, deliberately out of step, and four
  * things are checked:
  *
  * - every event is stamped with a session, and with the right one
  * - every frame carries its own session's slot
  * - each session's page is the one it navigated to, not the other's
+ * - two sessions at the same device scale share one browser process, and two at
+ *   different scales do not
+ *
+ * The last is the other half of the same idea and fails the other way round: a
+ * pool that never shares is only wasteful, while a pool that shares what it must
+ * not hands a window a browser launched at somebody else's scale factor — a
+ * pane that is soft rather than a pane that is wrong, which is exactly the kind
+ * of thing nobody reports.
  *
  * One engine rather than three: this is about the keys, not about the engines,
  * and Chromium alone keeps the test to a few seconds.
  *
  *   bun run verify:sessions
  */
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
 import { createServer } from 'node:net';
@@ -37,6 +45,32 @@ const SESSIONS = [
   { id: 'main', slot: 0, viewport: { width: 640, height: 480, scale: 1 }, title: 'left' },
   { id: 's1', slot: 1, viewport: { width: 800, height: 600, scale: 1 }, title: 'right' },
 ];
+
+/** A third comparison, at the other device scale, which may not share a process. */
+const RETINA = {
+  id: 's2',
+  slot: 2,
+  viewport: { width: 640, height: 480, scale: 2 },
+  title: 'retina',
+};
+
+/**
+ * How many browsers the sidecar has open, counted as processes.
+ *
+ * Its own children rather than everything on the machine: a developer running
+ * DevKit while its tests run would otherwise be counted too, and the number
+ * this asserts on is precisely "browsers this sidecar launched".
+ */
+function browserCount(pid: number): number {
+  try {
+    return execFileSync('pgrep', ['-P', String(pid)], { encoding: 'utf8' })
+      .split('\n')
+      .filter(line => line.trim().length > 0).length;
+  } catch {
+    // `pgrep` exits non-zero when nothing matches, which is a count of none.
+    return 0;
+  }
+}
 
 /** Different enough that a page served to the wrong window is unmistakable. */
 function page(title: string): string {
@@ -143,6 +177,41 @@ await wait(LOAD_MS);
 
 const failures: string[] = [];
 
+// Both sessions render at the same scale, so the pool has no reason to run two
+// Chromiums — and every reason not to, since that is a couple of hundred
+// megabytes per window that nobody is looking at differently.
+const shared = browserCount(sidecar.pid ?? 0);
+if (shared !== 1) {
+  failures.push(`two sessions at one scale opened ${shared} browsers, not 1`);
+}
+
+console.log('Starting a third session at another device scale…');
+send(RETINA, {
+  type: 'start',
+  engines: ['chromium'],
+  viewport: RETINA.viewport,
+  colorScheme: 'light',
+});
+await wait(LAUNCH_MS);
+
+// `--force-device-scale-factor` is fixed when Chromium starts, so this one
+// cannot be served by the browser the other two share.
+const separate = browserCount(sidecar.pid ?? 0);
+if (separate !== 2) {
+  failures.push(`a session at a second scale brought the count to ${separate}, not 2`);
+}
+
+send(RETINA, { type: 'close-session' });
+await wait(2000);
+const afterClose = browserCount(sidecar.pid ?? 0);
+if (afterClose !== 1) {
+  failures.push(`closing the third session left ${afterClose} browsers, not 1`);
+}
+
+console.log(
+  `  browsers  ${shared} shared · ${separate} with a second scale · ${afterClose} after close`
+);
+
 /** What the sidecar said about the process rather than about a comparison. */
 const GLOBAL = ['hello', 'browsers', 'install-progress', 'log'];
 
@@ -154,8 +223,9 @@ if (unstamped.length > 0) {
   failures.push(`${unstamped.length} event(s) arrived with no session: ${kinds}`);
 }
 
+const opened = [...SESSIONS, RETINA];
 const strangers = events.filter(
-  event => event.session !== undefined && !SESSIONS.some(session => session.id === event.session)
+  event => event.session !== undefined && !opened.some(session => session.id === event.session)
 );
 if (strangers.length > 0) {
   failures.push(`${strangers.length} event(s) named a session nobody opened`);
@@ -207,11 +277,12 @@ if (failures.length > 0) {
   console.error('\nSESSIONS ARE NOT SEPARATE\n');
   failures.forEach(failure => console.error(`  - ${failure}`));
   console.error(
-    '\nTwo windows sharing anything here is two windows showing each other their pages,' +
-      '\nwhich looks like a working app right up until somebody reads what is on screen.\n'
+    '\nTwo windows sharing state is two windows showing each other their pages, which looks' +
+      '\nlike a working app right up until somebody reads what is on screen. Two windows not' +
+      '\nsharing a browser is three processes per tab.\n'
   );
   process.exit(1);
 }
 
-console.log('\nTwo sessions, nothing shared.\n');
+console.log('\nTwo sessions: nothing of theirs shared, one browser between them.\n');
 process.exit(0);

@@ -16,16 +16,15 @@ import type {
 } from '@devkit/protocol';
 import { APP_DATA_SIGNATURE } from '@devkit/protocol';
 import type { Browser, BrowserContext, Page } from 'playwright';
-import { chromium, firefox, webkit } from 'playwright';
 
 import { ConsoleRelay } from './console.js';
 import { emitFor, log } from './emit.js';
 import { sendFrame } from './frame-channel.js';
+import type { Lease } from './pool.js';
+import { lease } from './pool.js';
 import type { Screencast } from './screencast.js';
 import { startScreencast } from './screencast.js';
 import { WALKER_KEY, WALKER_SOURCE } from './walker.js';
-
-const launchers = { chromium, firefox, webkit } as const;
 
 /**
  * Input kinds after which the selected element may have moved.
@@ -198,6 +197,14 @@ export class Pane {
   readonly engine: Engine;
 
   #browser: Browser | null = null;
+  /**
+   * This pane's claim on the browser, which it may be sharing.
+   *
+   * A pane no longer owns a process: it holds one of possibly several claims on
+   * a shared one, and closing means letting go rather than killing. See
+   * [`pool.ts`](./pool.ts).
+   */
+  #lease: Lease | null = null;
   #context: BrowserContext | null = null;
   #page: Page | null = null;
   #screencast: Screencast | null = null;
@@ -403,16 +410,15 @@ export class Pane {
     this.#launched = false;
     this.#emit({ type: 'pane', engine: this.engine, status: 'launching' });
     try {
-      this.#browser = await launchers[this.engine].launch({
-        headless: true,
-        args: this.#launchArgs(),
-      });
       // A browser that dies on its own must say so, or the pane silently stops
-      // updating and looks merely idle.
-      this.#browser.on('disconnected', () => {
+      // updating and looks merely idle. Told by the pool rather than by the
+      // browser, because the browser may be several panes' and each of them
+      // has its own column to report.
+      this.#lease = await lease(this.engine, this.#launchArgs(), () => {
         this.#announceClosed();
         this.#capturing = false;
       });
+      this.#browser = this.#lease.browser;
       this.#context = await this.#newContext();
       this.#page = await this.#context.newPage();
       // Only once the pane has its own page: creating it announces a page too,
@@ -1556,9 +1562,12 @@ export class Pane {
     this.#console?.dispose();
     this.#console = null;
     await this.#stopCapture();
+    // The context is this pane's alone and goes; the browser may be somebody
+    // else's, so the claim is released and the last one out closes it.
     await this.#context?.close().catch(() => {});
-    await this.#browser?.close().catch(() => {});
+    await this.#lease?.release();
     this.#context = null;
+    this.#lease = null;
     this.#browser = null;
     this.#page = null;
   }

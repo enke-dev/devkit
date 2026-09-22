@@ -55,7 +55,28 @@ the user outright — a second click adds a tab to the browser they already have
 asked for it. And of the frontend's stored state, only the back/forward trail is per session; the
 address bar's history and the layout sizes are one person's preferences, not one comparison's.
 
-`bun run verify:sessions` drives two sessions through one sidecar and fails if anything crosses.
+### Browsers are shared, contexts are not
+
+A pane does not own a browser process. It holds a claim on one
+([`pool.ts`](../packages/sidecar/src/pool.ts)) and creates a context in it, and the last claim to be
+released closes it. Two windows are then three browsers rather than six, and four tabs are three
+rather than twelve — a browser is a couple of hundred megabytes where a context is a few, and a
+context already carries everything a pane sets: its viewport, its device scale, its colour scheme.
+
+The pool is keyed by engine **and launch arguments**, because Chromium's
+`--force-device-scale-factor` is fixed when the process starts and is the whole reason its screencast
+is not soft on a HiDPI display. Two windows on displays of different scale get two Chromiums;
+measured, two windows at one scale get one. Gecko and WebKit take no arguments and always share.
+
+What it costs is isolation, and the cost is real: a browser that crashes takes every pane leasing it,
+in every window. Each holder is told separately, each reports its own pane closed, and the frontend
+brings them back as it always has — verified by killing a shared Chromium under two open tabs, which
+blanked both Chromium panes and relaunched them as one process again. They now fall together where
+they used to fall alone.
+
+`bun run verify:sessions` drives two sessions through one sidecar and fails if anything crosses —
+and, since the pool, also if two sessions at one scale open two browsers, or two sessions at
+different scales share one.
 
 ### A comparison is a window, and on macOS a tab
 

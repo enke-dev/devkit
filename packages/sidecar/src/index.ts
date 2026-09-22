@@ -17,6 +17,7 @@ import { closeDetached, detach } from './detached.js';
 import { emit, emitFor, log } from './emit.js';
 import { closeFrameChannel, connectFrameChannel } from './frame-channel.js';
 import { describe, Pane } from './pane.js';
+import { closePool } from './pool.js';
 import type { Session } from './session.js';
 import { allPanes, closeAllSessions, closeSession, sessionFor } from './session.js';
 
@@ -482,6 +483,9 @@ function heartbeat(): void {
 async function shutdown(code: number): Promise<void> {
   closeFrameChannel();
   await Promise.allSettled([closeAllSessions(), closeDetached()]);
+  // Sessions let go of their claims above; anything still standing is a browser
+  // whose panes never closed cleanly, and it is not to outlive us.
+  await closePool();
   process.exit(code);
 }
 
