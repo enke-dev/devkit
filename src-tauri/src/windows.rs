@@ -110,7 +110,18 @@ pub fn adopt_first_window(app: &AppHandle) {
 
 /// Open another comparison, as a tab where the platform has them.
 pub fn open(app: &AppHandle) -> Result<String, String> {
-    let label = next_label(app);
+    open_labelled(app, &next_label(app))
+}
+
+/// Reopen a comparison under the name it had.
+///
+/// Restoring uses this rather than `open`, because a label is not decoration:
+/// it is the session the sidecar keys everything by, the directory its frames
+/// are served from, and what the first window's stored trail is filed under.
+/// A restored comparison that came back as `s3` would be a different comparison
+/// wearing its page.
+pub fn open_labelled(app: &AppHandle, label: &str) -> Result<String, String> {
+    let label = label.to_string();
     let beside = host(app);
 
     // The size of the window it came from, so a new tab matches the one it

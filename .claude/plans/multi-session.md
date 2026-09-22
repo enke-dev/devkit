@@ -239,3 +239,22 @@ settled page produces none and the pane would otherwise sit on a picture from be
 `verify:sessions` covers it against a page that animates for ever, because suspending a settled pane
 looks the same as not suspending it: 0 frames while hidden, 150 from the session beside it, 147 once
 it was back.
+
+## Step 4 — restoring what was open — **done**
+
+Tabs that exist only until you quit are tabs nobody arranges. Quitting now writes down every open
+comparison and relaunching reopens them in order, under their own labels, each back on its page.
+
+Owned by the backend ([`restore.rs`](../../src-tauri/src/restore.rs)) because the decision needs two
+facts that live on opposite sides: the frontend knows the page, and says so on every navigation; the
+backend knows whether a window went away because somebody closed it or because the app was quitting.
+A closed tab is forgotten as it goes; the survivors are written on `ExitRequested`, while the windows
+are still standing.
+
+Measured by hand, since none of it is reachable from the sidecar harness: two tabs on two pages,
+quit through the menu, both back as tabs with their pages; then one closed, quit again, and the saved
+set held only the one that was left.
+
+What is deliberately not restored: the trail behind each tab, which is still only the first window's
+([`session.utils.ts`](../../packages/app/src/utils/session.utils.ts)). A restored comparison opens on
+its page with its back arrow empty — the page is the comparison, the trail is how you got there.

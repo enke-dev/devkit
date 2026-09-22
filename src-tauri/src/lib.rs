@@ -4,6 +4,7 @@ mod notes;
 mod frame_channel;
 mod frames;
 mod protocol;
+mod restore;
 mod sessions;
 mod sidecar;
 mod windows;
@@ -12,6 +13,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 
 use frames::FrameStore;
+use restore::Comparisons;
 use sessions::Sessions;
 use sidecar::Sidecar;
 
@@ -41,6 +43,29 @@ fn sidecar_send(
     object.insert("slot".into(), serde_json::Value::from(slot));
 
     state.send(&request)
+}
+
+/// Say where this comparison is, so quitting and relaunching can bring it back.
+///
+/// Reported on every navigation rather than asked for on the way out: a window
+/// being torn down is in no state to answer a question, and the answer is
+/// cheap to keep up to date.
+#[tauri::command]
+fn remember_url(webview: tauri::Webview, comparisons: tauri::State<'_, Comparisons>, url: String) {
+    comparisons.remember(webview.label(), &url);
+}
+
+/// The page this window should be showing, if it had one before.
+///
+/// Answers a comparison restored on relaunch, and one whose webview reloaded
+/// while its panes carried on behind it. Nothing means a new comparison, which
+/// opens on no page at all.
+#[tauri::command]
+fn restored_url(
+    webview: tauri::Webview,
+    comparisons: tauri::State<'_, Comparisons>,
+) -> Option<String> {
+    comparisons.url_for(webview.label())
 }
 
 /// Print a line from the frontend to the terminal.
@@ -136,6 +161,11 @@ fn close_session(app: &tauri::AppHandle, label: &str) {
         return;
     };
     app.state::<FrameStore>().clear_session(label);
+    // Closed by somebody, which is the whole difference between a comparison
+    // that should come back and one that should not. A window taken down
+    // because the app is quitting is never forgotten here: the set is written
+    // to disk before any of that happens.
+    app.state::<Comparisons>().forget(label);
 
     // A detached inspector is a view of panes that no longer exist. Closed from
     // here rather than by the window it belongs to, which is in no position to
@@ -291,12 +321,15 @@ pub fn run() {
         .manage(Sidecar::default())
         .manage(FrameStore::default())
         .manage(Sessions::default())
+        .manage(Comparisons::default())
         .register_uri_scheme_protocol(protocol::FRAME_SCHEME, |ctx, request| {
             frames::respond(&ctx.app_handle().state::<FrameStore>(), &request)
         })
         .invoke_handler(tauri::generate_handler![
             sidecar_send,
             sidecar_restart,
+            remember_url,
+            restored_url,
             open_privacy_settings,
             request_app_data_access,
             debug_log,
@@ -308,7 +341,24 @@ pub fn run() {
             }
 
             // The first window exists already; the rest are opened from here.
-            windows::adopt_first_window(&app.handle().clone());
+            let handle = app.handle().clone();
+            windows::adopt_first_window(&handle);
+
+            // What was open when the app was last quit. The first window is
+            // already there and only needs its page back — which it asks for
+            // itself — so only the others are opened, in the order they were.
+            let remembered = restore::load(&handle);
+            remembered
+                .iter()
+                .for_each(|comparison| app.state::<Comparisons>().remember(&comparison.label, &comparison.url));
+            remembered
+                .iter()
+                .filter(|comparison| comparison.label != "main")
+                .for_each(|comparison| {
+                    if let Err(error) = windows::open_labelled(&handle, &comparison.label) {
+                        note!("[devkit] could not reopen {}: {error}", comparison.label);
+                    }
+                });
 
             // Frames arrive over their own socket rather than as base64 on
             // stdout; the sidecar is told where to connect.
@@ -332,7 +382,13 @@ pub fn run() {
         .run(|app, event| match event {
             // Headless browsers outlive their parent unless told otherwise, so
             // the sidecar is killed explicitly on the way out.
-            RunEvent::ExitRequested { .. } | RunEvent::Exit => app.state::<Sidecar>().kill(),
+            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+                // While the windows are still standing: what is open now is
+                // what should come back, and a moment later there will be
+                // nothing left to write down.
+                restore::save(app);
+                app.state::<Sidecar>().kill()
+            }
             // One window closing is not the app closing: its panes go, and
             // whatever other windows are showing carries on.
             RunEvent::WindowEvent {

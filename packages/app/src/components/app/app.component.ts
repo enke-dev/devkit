@@ -60,6 +60,7 @@ import {
   storeSplit,
 } from '../../utils/layout.utils.js';
 import { clamp } from '../../utils/resize.utils.js';
+import { rememberUrl, restoredUrl } from '../../utils/restore.utils.js';
 import * as session from '../../utils/session.utils.js';
 import { isAppShortcut, match } from '../../utils/shortcuts.utils.js';
 import type { AvailableUpdate } from '../../utils/update.utils.js';
@@ -440,6 +441,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
     // that fails to load is still one you visited and will probably try again.
     history.record(url, '');
     session.visited(url);
+    rememberUrl(url);
     this.updateNavState();
     void send({ type: 'navigate', url }).catch(error => this.reportError(error));
   }
@@ -1904,6 +1906,7 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
           // moment the address changes, and waiting for `load` left the back
           // arrow dead — for good, on a page that never finishes loading.
           session.visited(event.url);
+          rememberUrl(event.url);
           this.updateNavState();
         }
         // The title is the exception: it only exists once the page has loaded,
@@ -2071,6 +2074,17 @@ export class AppComponent extends DevkitElement.withStyles(styles) {
 
   override firstUpdated(): void {
     this.attachPanes();
+
+    // A restored comparison, or one whose webview reloaded: the backend
+    // outlives both and is asked where this window was. Only when nothing else
+    // has said — the first window's own trail answers before this can, and a
+    // page somebody typed in the meantime is not to be overruled by one from
+    // before the relaunch.
+    void restoredUrl().then(url => {
+      if (url !== null && this.url === '') {
+        this.navigate(url);
+      }
+    });
 
     // Nobody is looking: the panes stop being drawn while this window is
     // hidden — another tab is in front of it, or it is minimised — and start

@@ -74,6 +74,26 @@ brings them back as it always has — verified by killing a shared Chromium unde
 blanked both Chromium panes and relaunched them as one process again. They now fall together where
 they used to fall alone.
 
+### Comparisons come back, closed ones stay closed
+
+Quitting writes down what was open; relaunching reopens it, tab order and all
+([`restore.rs`](../src-tauri/src/restore.rs), `comparisons.json` in the app's config directory).
+
+It lives in the backend because restoring needs two things known at once and each side knows only
+one. The frontend knows what page a comparison is on, and says so on every navigation. The backend
+knows *why* a window went away — closed by somebody, or taken down because the app is quitting — and
+those mean opposite things: a closed tab is forgotten as it goes, and the set is written on
+`ExitRequested`, while the windows still stand. Asking the windows on the way out instead would be
+asking webviews that are already being destroyed.
+
+Restored windows are reopened under **their own labels**, because a label is not decoration: it is
+the session the sidecar keys everything by, the directory its frames are served from, and what the
+first window's stored trail is filed under. A comparison that came back as `s3` would be a different
+comparison wearing its page.
+
+The same answer serves a webview that merely reloaded, which has forgotten everything the page knew
+while its panes carried on behind it.
+
 ### A window nobody can see stops drawing
 
 A comparison in a background tab suspends: its capture stops, its pages carry on. The app window
