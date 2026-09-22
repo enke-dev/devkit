@@ -1,5 +1,26 @@
 # DevKit
 
+# [0.6.0](https://github.com/enke-dev/devkit/compare/v0.5.0...v0.6.0) (2026-09-22)
+
+### Bug Fixes
+
+* make a new comparison open empty, and tie the inspector to its window ([2659c04](https://github.com/enke-dev/devkit/commit/2659c0489577910a056c5f67dc61d8f07ff0cd42))
+
+### Features
+
+* **app:** name the window after the page it shows ([8cc0004](https://github.com/enke-dev/devkit/commit/8cc00047bf17c40c311546714aff327567f69555))
+* **app:** scope frames, trail and inspector per session ([61e0d8b](https://github.com/enke-dev/devkit/commit/61e0d8bacf3262688877caf4ff4f7b6ed009c4ca))
+* **backend:** merge windows into tabs, and take a tab back out ([a8ea3f7](https://github.com/enke-dev/devkit/commit/a8ea3f70e2e13393025a401ea9ceea052f5d3ad5))
+* **backend:** open a comparison per window, tabbed on macOS ([1c54824](https://github.com/enke-dev/devkit/commit/1c54824343d94b09c40304976a720c11809bf700))
+* **backend:** route sidecar traffic per window ([c700218](https://github.com/enke-dev/devkit/commit/c7002189e9ae16a81d7a8c6ff6bc9b046a46bb37))
+* bring back the comparisons that were open ([1b8ae27](https://github.com/enke-dev/devkit/commit/1b8ae27561c0412c68ebfa8c98ac0044900168e0))
+* **sidecar:** hold one session per window ([6c99db0](https://github.com/enke-dev/devkit/commit/6c99db04e4bcb843c918b22f4447f32974a3eae2))
+
+### Performance Improvements
+
+* **sidecar:** share one browser per engine between comparisons ([43b57fa](https://github.com/enke-dev/devkit/commit/43b57fab7d9290663b3f1103fe873ed89d068d18))
+* stop drawing a comparison nobody can see ([1dbaabc](https://github.com/enke-dev/devkit/commit/1dbaabc95a0b4b2812cc6ec3b906581d739627c0))
+
 # [0.5.0](https://github.com/enke-dev/devkit/compare/v0.4.0...v0.5.0) (2026-09-21)
 
 ### Bug Fixes
